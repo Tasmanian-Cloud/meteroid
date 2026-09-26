@@ -139,3 +139,22 @@ status_reason = "lake build green, 2026-09-27 (with 2 `sorry` placeholders pendi
 controls = ["seven_decide_checked_examples_against_real_proration_vectors", "restoration_blocker_general_ulpFor_bound_proof"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+# ── FUTURE-PATH (owed; not extracted into any artifact yet; Aeneas TFloat support is
+# the precondition — documented in `RESEARCH.md` as a "real structural failure"). This
+# row MUST NOT be read as a proof claim. When Aeneas gains TFloat, these functions
+# migrate from the song-style direct model to extraction-style proofs under a future
+# `proof-extract/` package. Until then, FloatError.lean's song-style model stands as the
+# artifact that PROVES the modeled pipeline concretely — but does not prove the real
+# `rust_decimal::Decimal` + `f64`-sourced rate path at `meteroid-tax/src/lib.rs:124-138`.
+[[future_core]]
+function = "round_half_away_from_zero_full_pipeline"
+module = "meteroid-tax"
+file = "crates/meteroid-tax/src/lib.rs"
+lean_module = "TBD (proof-extract/, Aeneas TFloat-dependent)"
+algebra = "the FULL Decimal-based pipeline including the f64 → rust_decimal::Decimal conversion at meteroid-tax/src/lib.rs:124-138 (Decimal::from_f64 on a pre-rounded f64); FloatError.lean's modeled f64 round is the easy half; the hard half is the lossy f64→Decimal conversion"
+encoding = "f64 + rust_decimal::Decimal (no Lean native; needs Aeneas TFloat)"
+status = "Aeneas — owed (precondition: TFloat support in aeneas, per `proof/RESEARCH.md`)"
+proofs = []
+controls = ["aeneas_TFloat_support_landing"]
+artifact_sha256 = "owed"

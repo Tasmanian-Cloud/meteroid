@@ -1,0 +1,141 @@
+# meteroid proof register — machine-readable rows for the verification cores
+# (`proof/PROOF.md`). See PROOF.md for the rules a future
+# `scripts/proof-register.py` gate will enforce statically.
+
+[[core]]
+function = "aggregate"
+module = "meteroid-proof-core::cores::metering_agg"
+file = "crates/meteroid-proof-core/src/cores/metering_agg.rs"
+lean_module = "MeteroidVerify.Metering"
+lean_file = "proof/MeteroidVerify/Metering.lean"
+algebra = "per-kind fold over a List Event: sum = foldl (+) 0, count = length, min/max = foldl with a comparison (empty defaults to 0, unverified against real ClickHouse SQL), latest = last element or 0"
+encoding = "Int values, (Nat, Nat) opaque dedup keys (Rust: i64 pair) — models the real system's eventual integer-minor-unit persistence, not the real f64 in-memory Usage.value"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27 (proof/, no Mathlib/Batteries/sorry/admit/axiom/native_decide — grepped clean). sum_double_counts_duplicates/count_double_counts_duplicates/min_max_ignore_duplicates_on_dupExample proved by decide over the concrete dupExample. Rust side (metering_agg.rs) is a separate, manual re-implementation cross-checked by shared vectors/metering_agg.json test vectors (cargo test -p meteroid-proof-core: 4 passed), not machine-linked to this proof."
+controls = ["sum_double_counts_duplicates", "count_double_counts_duplicates (pin the real dedup gap in metering/src/ingest/common.rs)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "dedup"
+module = "meteroid-proof-core::cores::metering_agg"
+file = "crates/meteroid-proof-core/src/cores/metering_agg.rs"
+lean_module = "MeteroidVerify.Metering"
+lean_file = "proof/MeteroidVerify/Metering.lean"
+algebra = "first-occurrence-wins dedup by (tenant_id, id) key over a List Event"
+encoding = "Int values, (Nat, Nat) opaque dedup keys"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. dedup_dupExample proved by decide. Documents the semantics RawEvent::key() (metering/src/ingest/domain.rs:21-24) implies but that the real ingest path (metering/src/ingest/common.rs) never actually checks."
+controls = ["dedup_dupExample (concrete two-duplicate example)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "tiered_amount"
+module = "meteroid-proof-core::cores::tier_pricing"
+file = "crates/meteroid-proof-core/src/cores/tier_pricing.rs"
+lean_module = "MeteroidVerify.TierPricing"
+lean_file = "proof/MeteroidVerify/TierPricing.lean"
+algebra = "graduated-tier fold: each tier charged for units in [firstUnit, next.firstUnit) via Nat-truncating subtraction (matches the real saturating_sub exactly, not an approximation), unbounded for the last tier"
+encoding = "Int amounts, Nat unit counts/tier boundaries — rate/flat-fee/flat-cap precision omitted (out of scope: this file proves tier-selection structure, not Decimal rounding)"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. tiered_price_ignores_block_size proved by rfl: computeTierPrice's _blockSize parameter is unused in its body, exactly mirroring compute_tier_price's real signature (fees.rs:160-167). The identical unused-parameter shape at compute_volume_price (fees.rs:117-124) has the same bug by the same argument, not separately proved. Rust side (tier_pricing.rs) cross-checked by shared vectors/tier_pricing.json (ported 1:1 from fees.rs's own 3 tests + 1 authored block_size case; cargo test -p meteroid-proof-core)."
+controls = ["tiered_price_ignores_block_size (fees.rs:32,123,166's TODO block_size, formalized as non-dependence rather than a guessed 'correct' semantics)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "volume_amount"
+module = "meteroid-proof-core::cores::tier_pricing"
+file = "crates/meteroid-proof-core/src/cores/tier_pricing.rs"
+lean_module = "MeteroidVerify.TierPricing"
+lean_file = "proof/MeteroidVerify/TierPricing.lean"
+algebra = "tier selection: the whole usage charged at the rate of the single tier containing it; upper bound = next.firstUnit - 1"
+encoding = "Int (deliberately not Nat/UInt64 — see status_reason)"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. duplicate_zero_tier_upper_bound_goes_negative proved by decide: tierUpperBound 0 = -1 < 0. Modeled over Int, not Nat (would truncate to 0) or UInt64 (would wrap to u64::MAX), specifically so the real fees.rs:90 (next.first_unit - 1, unguarded, contrast tiered_charges's saturating_sub at fees.rs:48) failure precondition is provably reachable rather than silently absorbed by the model's own arithmetic. Rust side's volume_amount uses checked_sub to surface the same precondition as None without triggering the actual panic/wrap (duplicate_zero_tier_upper_bound_is_unrepresentable test)."
+controls = ["duplicate_zero_tier_upper_bound_goes_negative"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "nominal_period_days"
+module = "meteroid-proof-core::cores::proration"
+file = "crates/meteroid-proof-core/src/cores/proration.rs"
+lean_module = "MeteroidVerify.Proration"
+lean_file = "proof/MeteroidVerify/Proration.lean"
+algebra = "verbatim (proration.rs:78-86): per-period nominal day count, all four non-OneTime values exact integers in the real f64 code too"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. nominalPeriodDays matches proration.rs:78-86 exactly, no float/int gap for these four constants."
+controls = ["nominalPeriodDays used directly by componentProrationFactor's theorems"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "is_aligned"
+module = "meteroid-proof-core::cores::proration"
+file = "crates/meteroid-proof-core/src/cores/proration.rs"
+lean_module = "MeteroidVerify.Proration"
+lean_file = "proof/MeteroidVerify/Proration.lean"
+algebra = "the real (days_in_period - nominal).abs() <= nominal * 0.25 (proration.rs:108), scaled x4 to stay in Int"
+encoding = "Int — exact for all four real nominal values (7.5/22.75/45.5/91.25 are each a whole number of quarters), not an approximation; see this file's own module doc for why"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. isAligned's x4 scaling reproduces the real f64 comparison exactly, used directly in aligned_branch_can_escape_unit_interval / misaligned_branch_clamps_out_of_range_factor."
+controls = ["exercised by aligned_branch_can_escape_unit_interval and misaligned_branch_clamps_out_of_range_factor"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "component_proration_factor"
+module = "meteroid-proof-core::cores::proration"
+file = "crates/meteroid-proof-core/src/cores/proration.rs"
+lean_module = "MeteroidVerify.Proration"
+lean_file = "proof/MeteroidVerify/Proration.lean"
+algebra = "branch on cadence alignment: aligned returns baseFactor unclamped, misaligned clamps to [0,1] via max 0 (min 1 ·)"
+encoding = "Int — real code is f64; a real Charon+Aeneas extraction attempt was made and failed (Aeneas has no TFloat support, confirmed by reading InterpExpressions.ml, not assumed). Path B, not Path A."
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. aligned_branch_can_escape_unit_interval and misaligned_branch_clamps_out_of_range_factor both proved by decide on the same out-of-range baseFactor=2 against two daysInPeriod values, isolating the branch decision as the only variable. See proof/RESEARCH.md for the Aeneas extraction attempt (proof-extract/ package, real toolchain, real structural failure) that preceded this fallback."
+controls = ["aligned_branch_can_escape_unit_interval", "misaligned_branch_clamps_out_of_range_factor (formalizes an asymmetry not previously flagged: the common/aligned case trusts an unclamped caller-supplied factor)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "prorated_product_bound_holds"
+module = "meteroid-proof-core::cores::proration"
+file = "crates/meteroid-proof-core/src/cores/proration.rs"
+lean_module = "MeteroidVerify.Proration"
+lean_file = "proof/MeteroidVerify/Proration.lean"
+algebra = "0 <= amount*p <= amount*q given 0<=p<=q, amount>=0 — the exact-ratio conservation bound underlying the real proration.rs:186,212,243,295 (amount*factor).round() as i64 pattern, stated multiplicatively to avoid committing to a rounding convention"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Proved via Int.mul_nonneg/Int.mul_le_mul_of_nonneg_left (Lean 4 core, no Mathlib needed). Spot-checked against the real test_simple_upgrade_half_period (proration.rs:417-450) numbers in the file's own example block."
+controls = ["prorated_product_never_exceeds_full_period_product (Rust test, calls prorated_product_bound_holds)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "round_half_away_from_zero"
+module = "meteroid-proof-core::cores::tax_rounding"
+file = "crates/meteroid-proof-core/src/cores/tax_rounding.rs"
+lean_module = "MeteroidVerify.TaxRounding"
+lean_file = "proof/MeteroidVerify/TaxRounding.lean"
+algebra = "round-half-away-from-zero of an exact integer ratio: (2*numerator + denominator) / (2*denominator)"
+encoding = "Int — real code uses rust_decimal::Decimal (no Aeneas builtin) and an f64-sourced rate (Decimal::from_f64); Path B, models the ROUNDING STRATEGY exactly against an assumed-exact rate, not the f64-to-Decimal conversion itself (documented open gap, RESEARCH.md and this file's own module doc)."
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Matches meteroid-tax/src/tests.rs's own hand-verified test_rounding_behavior cases (999x0.21->210, 997x0.21->209) by decide, plus a genuine-midpoint case (250.5->251) pinning MidpointAwayFromZero as distinct from banker's rounding."
+controls = ["matches_meteroid_tax_test_rounding_behavior", "midpoint_rounds_away_from_zero_not_to_even"]
+
+[[core]]
+function = "f64_factor_scaled_pipeline"
+module = "meteroid-proof-core::cores::proration"
+file = "crates/meteroid-proof-core/src/cores/proration.rs"
+lean_module = "MeteroidVerify.FloatError"
+lean_file = "proof/MeteroidVerify/FloatError.lean"
+algebra = "modeled f64 rounding pipeline: gridFactor (roundHalfAwayFromZero at gridScale=100) → roundToP f64Precision (53-bit significant-bit round) for both the division and the multiplication → roundHalfAwayFromZero back down to whole cents. The exact pipeline in proration.rs:165-169,186,212,243,295."
+encoding = "Int — modeled via roundU/roundToP from Song.Float3; pure Lean core (no Mathlib, no f64)."
+status = "Lean (native, partial — general theorems `roundToP_abs_bound` and `roundToP_relative_bound` carry `sorry` placeholders)"
+status_reason = "lake build green, 2026-09-27 (with 2 `sorry` placeholders pending the general ulpFor bound — the agent on the 'prove the general ulpFor bound and go fully symbolic' terminal is working this). The 7 `example`s that check the modeled pipeline against real `proration.rs` test vectors (`test_simple_upgrade_half_period`, `test_change_on_last_day`, `test_added_yearly_component_prorated_over_its_own_period`, `test_mixed_components_with_added_and_removed` × 4 amounts, and the `$10M / 227 of 365 days` sanity case) all prove via `decide`. The two `sorry` placeholders do not gate any of the 7 examples; they gate the general symbolic bound that would prove the WHOLE pipeline correct in one go, which is real follow-up work."
+controls = ["seven_decide_checked_examples_against_real_proration_vectors", "restoration_blocker_general_ulpFor_bound_proof"]
+proof_repo_commit = ""
+artifact_sha256 = ""

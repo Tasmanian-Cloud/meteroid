@@ -1324,3 +1324,106 @@ formalize. The mechanism is a straightforward I/O-level deduplication guard
 The scope itself (webhook I/O handling) is explicitly out of scope per
 the session charter ("... the rest ... (auth, UI, billing-webhook plumbing, ...)
 is out of scope").
+
+## Basis audit 2026-09-27: candidates A and B do not unify
+
+Two specific candidate unifications were investigated: whether `CurrencyConversion.lean` and
+`EntitlementGracePeriod.lean` (candidate A) share a genuine "missing scale factor" basis shape,
+and whether `CouponThreshold.lean`, `CheckoutSessionExpiry.lean`, and `QuoteExpiry.lean`
+(candidate B) share a genuine "boundary inequality" basis shape. Both were found to NOT unify.
+
+### Candidate A (Scale Factor): Rejected — different structural roles for the missing factor
+
+**CurrencyConversion.lean** (line references `customer_balance.rs:40`):
+```
+Real:    convertCurrency = amountCents * rate
+Correct: convertCurrencyScaled = amountCents * rate * 10^toExponent / 10^fromExponent
+Missing factor: 10^(toExponent - fromExponent), applied to the RESULT of multiplication
+```
+
+**EntitlementGracePeriod.lean** (line references `entitlements.rs:320`):
+```
+Real:      entitlementEnabledReal = (consumed < limit)
+Intended:  entitlementEnabledIntended = (100 * consumed < limit * (100 + gracePct))
+Missing factor: (100 + gracePct) / 100, applied to the LIMIT threshold (right side of comparison)
+```
+
+**Why NOT a single basis:** The two bugs have superficially similar high-level shape
+("a value is computed/compared without a multiplicative correction term") but differ
+structurally in WHERE the missing factor matters:
+
+1. In `CurrencyConversion`, the missing factor is a RESULT SCALER: it multiplies the
+   computed value `amountCents * rate`. The formula shape is `value * (correction1 / correction2)`,
+   staying in exact integer arithmetic when the division is exact.
+
+2. In `EntitlementGracePeriod`, the missing factor is a THRESHOLD SCALER: it multiplies
+   the limit being compared against. The formula shape is `value < threshold * (correction1 / correction2)`,
+   and the bug is in the decision logic (comparison), not in the arithmetic.
+
+A unified basis would need to encode "missing multiplicative factor" in a form that works
+identically for both cases — either composable as a result multiplier OR as a threshold
+multiplier. No single combinator naturally covers both. Attempting to unify would force
+an abstraction that either:
+- Is so generic (e.g., `scaled x factor`) that it doesn't capture the asymmetry between
+  the two use cases and becomes a proof-once-use-everywhere template with no reusable structure,
+  or
+- Requires separate sub-lemmas for "scaling a result" and "scaling a threshold",
+  eliminating the claimed unification.
+
+The discipline established by `PaymentReversal.lean`'s retrofit (refusing to force a fit
+where the basis doesn't naturally have one) means: **do not build a `ScaleFactorBasis`**.
+
+### Candidate B (Boundary Inequality): Rejected — three different bug patterns, not one
+
+**CouponThreshold.lean** (line reference `discount.rs:89-116`):
+- Real: `if remaining ≤ 1 then none else some (remaining - discount)`
+- Pattern: **CHECK HAPPENS BEFORE OPERATION** — the boundary check runs before the discount
+  is applied, so a `remaining` of exactly 1 never gets discounted.
+- Bug mechanism: Check-then-apply ordering at the wrong point in the loop.
+
+**CheckoutSessionExpiry.lean** (line reference `checkout_sessions.rs:81-84`):
+- Real: `Utc::now() > exp` (strict inequality)
+- Correct: `Utc::now() >= exp` (inclusive inequality)
+- Pattern: **WRONG COMPARISON OPERATOR** — uses strict `>` where inclusive `>=` is needed.
+- Bug mechanism: Boundary value off by one in the comparison itself.
+
+**QuoteExpiry.lean** (line reference `quotes.rs:21-61`):
+- Real: checks `status == Accepted` and `!converted` only
+- Correct: also checks `!expired`
+- Pattern: **CHECK IS ENTIRELY MISSING** — the expiry guard is not present at all.
+- Bug mechanism: Absence of a boundary check, not a wrong boundary check.
+
+**Why NOT a single basis:** All three involve "boundary conditions," but they are three
+DIFFERENT bug patterns, not three instances of the same pattern:
+
+1. **CouponThreshold** is about TIMING: the check and operation are in the wrong order relative
+   to each other. The fix is restructuring the loop (apply-then-check, or check after-the-fact),
+   not a lemma about boundary comparisons.
+
+2. **CheckoutSessionExpiry** is about COMPARISON OPERATOR: a single `>` vs `>=` choice in
+   one place. The fix is changing the operator (or equivalently, swapping the operands).
+
+3. **QuoteExpiry** is about GUARD ABSENCE: an entire conditional branch is missing.
+   The fix is adding a check that doesn't currently exist.
+
+No reusable basis would cover all three. A lemma about "off-by-one in comparisons"
+(what CheckoutSessionExpiry+CouponThreshold might share) would not address QuoteExpiry's
+missing-guard problem. A "boundary-condition patterns" basis would be so vague that it
+would not actually encode a reusable proof strategy — each of the three would still need
+its own independent proof.
+
+The discipline established by the earlier audits: **do not build a `BoundaryBasis`**.
+
+### Summary
+
+**Candidate A:** Rejected. The two bugs use superficially similar "missing multiplication" language
+but differ in structural role (result scaler vs. threshold scaler), and don't compose cleanly.
+
+**Candidate B:** Rejected. The three bugs all involve boundaries, but in three structurally different
+ways (timing, operator, absence), and don't unify into a reusable proof pattern.
+
+No new basis modules were built. The existing `LedgerFold.lean` and `IntervalBasis.lean`
+remain the only two basis modules, and the audited files (`CurrencyConversion`, `EntitlementGracePeriod`,
+`CouponThreshold`, `CheckoutSessionExpiry`, `QuoteExpiry`, and the earlier-audited
+`TierPricing`, `SubscriptionStatus`, `CreditNoteRace`, etc.) are correctly left as
+stand-alone proofs rather than retrofitted onto a forced unification.

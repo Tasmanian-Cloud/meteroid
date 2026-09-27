@@ -428,12 +428,52 @@ transaction nets to exactly `0` in `settledSum`'s formula.
 
 Scoped credit-note issuance alongside this: `repositories/credit_notes.rs:1035-1043`
 rejects a `DebtCancellation` credit note whose total exceeds
-`invoice.amount_due` at creation time — a real, correct-looking guard — but
-whether the invoice row is locked (`SELECT FOR UPDATE`) before that check,
-and whether `applied_credits` and `cancelled_sum`'s `DebtCancellation`
-credit notes could ever share the same underlying credit, are both
-genuinely unconfirmed in the time spent, not asserted as bugs or ruled out.
-Left open for a follow-up that specifically traces the locking.
+`invoice.amount_due` at creation time — a real, correct-looking guard.
+Whether the invoice row is locked before that check was left genuinely
+unconfirmed at the time — **now traced and resolved as a real, confirmed
+bug, see "Credit-note race" below.** Whether `applied_credits` and
+`cancelled_sum`'s `DebtCancellation` credit notes could ever share the same
+underlying credit remains unconfirmed, not yet traced.
+
+## Credit-note race: the lock is real, the guard never reads its result
+
+Followed up the locking question flagged above by reading the exact data
+flow in `repositories/credit_notes.rs`, not just checking whether a lock
+call is present anywhere in the function:
+
+1. `create_user_credit_note_tx` (`:610-778`) reads the invoice via
+   `InvoiceRow::find_detailed_by_id` (`:618`) — **no lock** — and binds it
+   to `invoice`.
+2. It calls `create_credit_note_tx` (`:676`), passing that same pre-lock
+   `invoice` inside `CreateCreditNoteTxParams`.
+3. `create_credit_note_tx` (`:778`) rebinds it unchanged at `:785`
+   (`let invoice = params.invoice;`), THEN at `:789` calls
+   `InvoiceRow::select_for_update_by_id` — confirmed (`diesel-models/src/query/invoices.rs:54-75`)
+   to genuinely lock the row (customer-then-invoice ordering to avoid
+   deadlocks) and return a fresh `InvoiceLockRow { invoice: InvoiceRow,
+   customer_balance: i64 }` (`diesel-models/src/invoices.rs:154-157`). This
+   return value is bound to `_invoice_lock` and never read again — grepped
+   the full function body (`:789-1040`) for any reassignment of `invoice`
+   or read of `_invoice_lock`; there is none.
+4. The `DebtCancellation` guard (`:1035-1038`,
+   `total.unsigned_abs() as i64 > invoice.amount_due`) checks the **pre-lock**
+   binding from step 1/3, not the fresh, post-lock row the database just
+   handed back in step 3.
+
+The lock genuinely serializes concurrent `create_credit_note_tx` calls
+against the same invoice — but serialization only prevents dirty writes; it
+does nothing for a guard whose input was captured before the wait and never
+refreshed after it. Two concurrent `DebtCancellation` requests against the
+same invoice each carry their own pre-lock `amount_due` snapshot from their
+own outer read (step 1), taken before either queued on the lock. Confirmed
+this is a real defect in the guard's data flow, not a claim about Postgres's
+general MVCC behavior: `CreditNoteRace.lean` models the guard's decision
+function exactly (`total <= amount_due`) and exhibits a concrete two-request
+witness (`amount_due=1000`, two requests of `700` each) where both
+individually pass yet their sum (`1400`) exceeds the invoice's actual
+outstanding balance — proved by `decide`, packaged as an explicit
+existential (`guard_gives_no_joint_bound`) rather than a false universal
+claim that every input triggers it.
 
 ## `recompute_amount_due_from_settled_payments`: monotone and exact
 

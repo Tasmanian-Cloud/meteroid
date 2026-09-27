@@ -273,3 +273,31 @@ controls = ["matches_meteroid_tax_test_rounding_behavior", "midpoint_rounds_away
 # a #[pure_core] Rust re-implementation cross-checked by vectors like the rows above. It
 # doesn't fit this schema's "one row per #[pure_core] function" shape, so it isn't forced
 # into one; lake build (proof/) is its own verification record.
+
+[[core]]
+function = "debt_cancellation_allowed"
+module = "meteroid-proof-core::cores::credit_note_race"
+file = "crates/meteroid-proof-core/src/cores/credit_note_race.rs"
+lean_module = "MeteroidVerify.CreditNoteRace"
+lean_file = "proof/MeteroidVerify/CreditNoteRace.lean"
+algebra = "verbatim (credit_notes.rs:1035): DebtCancellation guard, total <= amount_due"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. CONFIRMED bug, traced by reading the exact data flow (not inferred from the presence of a lock call): create_user_credit_note_tx reads the invoice via find_detailed_by_id (credit_notes.rs:618, no lock), passes it into create_credit_note_tx (:676), which rebinds it unchanged (:785) BEFORE calling InvoiceRow::select_for_update_by_id (:789) -- which does lock the row and returns a fresh InvoiceLockRow (diesel-models/src/invoices.rs:154-157) that is bound to _invoice_lock and never read again. The DebtCancellation guard (:1035-1038) checks the pre-lock binding from :618/:785, not the fresh post-lock row from :789. The lock serializes concurrent calls; it does nothing for a guard that never re-reads what it just waited to lock."
+controls = ["both_debt_cancellations_pass_the_guard_but_jointly_overshoot (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "both_allowed"
+module = "meteroid-proof-core::cores::credit_note_race"
+file = "crates/meteroid-proof-core/src/cores/credit_note_race.rs"
+lean_module = "MeteroidVerify.CreditNoteRace"
+lean_file = "proof/MeteroidVerify/CreditNoteRace.lean"
+algebra = "two DebtCancellation requests checked independently against the SAME stale pre-lock amount_due snapshot -- exactly what the real code does per the trace above"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. both_pass_the_guard + combined_effect_exceeds_amount_due (concrete witness: amount_due=1000, total1=total2=700, both individually pass but 700+700>1000) proved by decide; guard_gives_no_joint_bound packages this as an explicit existential, not a universal claim (most amount_due/total1/total2 triples do not overshoot -- this shows the shape of the gap is real, not that every input triggers it)."
+controls = ["both_pass_the_guard", "combined_effect_exceeds_amount_due", "guard_gives_no_joint_bound", "both_debt_cancellations_pass_the_guard_but_jointly_overshoot (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

@@ -31,6 +31,90 @@ proof_repo_commit = ""
 artifact_sha256 = ""
 
 [[core]]
+function = "new_slot_count"
+module = "meteroid-proof-core::cores::slot_bounds"
+file = "crates/meteroid-proof-core/src/cores/slot_bounds.rs"
+lean_module = "MeteroidVerify.SlotBounds"
+lean_file = "proof/MeteroidVerify/SlotBounds.lean"
+algebra = "verbatim (slots.rs:216): active + delta"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Trivial by construction; used directly in validSlotCount_iff's surrounding example."
+controls = ["a_downgrade_below_min_would_be_rejected_if_checked (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "valid_slot_count"
+module = "meteroid-proof-core::cores::slot_bounds"
+file = "crates/meteroid-proof-core/src/cores/slot_bounds.rs"
+lean_module = "MeteroidVerify.SlotBounds"
+lean_file = "proof/MeteroidVerify/SlotBounds.lean"
+algebra = "verbatim (repositories/subscriptions/slots.rs:211-239): accepts new_slot_count iff min<=new_slot_count<=max, either bound optional/unbounded"
+encoding = "Int, Option Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. validSlotCount_iff proves the check accepts exactly [min,max] inclusive, no off-by-one. The real gap is a Rust call-graph fact (update_subscription_slots, services/subscriptions/slots.rs:37-173, never calls this function at all -- confirmed by grep, only preview_slot_update:668 and complete_slot_upgrade_checkout:807 do), documented in this file's module doc, not provable as a Lean theorem about a Rust control-flow absence."
+controls = ["validSlotCount_iff", "accepts_exactly_the_inclusive_range (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "match_all"
+module = "meteroid-proof-core::cores::component_matching"
+file = "crates/meteroid-proof-core/src/cores/component_matching.rs"
+lean_module = "MeteroidVerify.ComponentMatching"
+lean_file = "proof/MeteroidVerify/ComponentMatching.lean"
+algebra = "the real matching loop's structure (plan_change.rs:1551-1583): map find_match over every target against the SAME unmodified current list"
+encoding = "Nat/Int pairs (id, productId), List"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Exercised directly by double_match_bug/second_current_component_never_matched below."
+controls = ["double_match_bug (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "find_match"
+module = "meteroid-proof-core::cores::component_matching"
+file = "crates/meteroid-proof-core/src/cores/component_matching.rs"
+lean_module = "MeteroidVerify.ComponentMatching"
+lean_file = "proof/MeteroidVerify/ComponentMatching.lean"
+algebra = "verbatim (plan_change.rs:1554-1558): .find() over the current-components list by product_id, first match wins"
+encoding = "Nat/Int pairs (id, productId), List"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. double_match_bug and second_current_component_never_matched proved by decide on a concrete two-current/two-target example sharing a product_id: both targets match the SAME first current component (double-credited), the second current component is unreachable by any target (spuriously dropped to removed). Real bug: build_plan_change_preview (plan_change.rs:1534-1616) never consumes a matched current component before the next target is processed."
+controls = ["double_match_bug", "second_current_component_never_matched", "double_match_bug (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "settled_sum"
+module = "meteroid-proof-core::cores::invoice_amount_due"
+file = "crates/meteroid-proof-core/src/cores/invoice_amount_due.rs"
+lean_module = "MeteroidVerify.InvoiceAmountDue"
+lean_file = "proof/MeteroidVerify/InvoiceAmountDue.lean"
+algebra = "sum of (amount - amount_refunded) over already-filtered (Settled, Payment) rows (invoices.rs:680-682)"
+encoding = "Int pairs, List"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. settledNet_full_refund_is_zero proved by decide/omega. Models only the aggregation formula, not the SQL row filtering or whether Refunded-status/amount_refunded consistency is maintained elsewhere (documented open assumption)."
+controls = ["settledNet_full_refund_is_zero", "full_refund_is_zero_net (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "new_amount_due"
+module = "meteroid-proof-core::cores::invoice_amount_due"
+file = "crates/meteroid-proof-core/src/cores/invoice_amount_due.rs"
+lean_module = "MeteroidVerify.InvoiceAmountDue"
+lean_file = "proof/MeteroidVerify/InvoiceAmountDue.lean"
+algebra = "max(0, total - applied_credits - cancelled_sum - settled) (invoices.rs:715)"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. newAmountDue_nonneg, newAmountDue_mono (more settled payment never increases amount_due — the property a sign-flip bug would break), and newAmountDue_eq_zero_iff (exact fully-paid threshold) all proved by omega."
+controls = ["newAmountDue_nonneg", "newAmountDue_mono", "newAmountDue_eq_zero_iff", "matches_shared_vectors (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
 function = "aggregate"
 module = "meteroid-proof-core::cores::metering_agg"
 file = "crates/meteroid-proof-core/src/cores/metering_agg.rs"

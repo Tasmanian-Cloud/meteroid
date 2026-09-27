@@ -1,5 +1,8 @@
+pub mod component_matching;
 pub mod discount;
+pub mod invoice_amount_due;
 pub mod metering_agg;
+pub mod slot_bounds;
 pub mod proration;
 pub mod tax_rounding;
 pub mod tier_pricing;

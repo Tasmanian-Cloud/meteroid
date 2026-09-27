@@ -1,0 +1,12 @@
+{
+  "_comment": "Cases for recompute_amount_due_from_settled_payments (diesel-models/src/query/invoices.rs:663-732). settled_rows are (amount, amount_refunded) pairs, already filtered to Settled+Payment as the real query does.",
+  "cases": [
+    { "total": 1000, "applied_credits": 0, "cancelled_sum": 0, "settled_rows": [], "expect": 1000 },
+    { "total": 1000, "applied_credits": 0, "cancelled_sum": 0, "settled_rows": [[1000, 0]], "expect": 0 },
+    { "total": 1000, "applied_credits": 100, "cancelled_sum": 50, "settled_rows": [[850, 0]], "expect": 0 },
+    { "total": 1000, "applied_credits": 100, "cancelled_sum": 50, "settled_rows": [[849, 0]], "expect": 1 },
+    { "total": 1000, "applied_credits": 0, "cancelled_sum": 0, "settled_rows": [[1500, 0]], "expect": 0 },
+    { "total": 1000, "applied_credits": 0, "cancelled_sum": 0, "settled_rows": [[1000, 1000], [500, 0]], "expect": 500 },
+    { "total": 2000, "applied_credits": 200, "cancelled_sum": 300, "settled_rows": [[600, 100], [400, 0]], "expect": 600 }
+  ]
+}

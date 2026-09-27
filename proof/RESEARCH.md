@@ -391,9 +391,52 @@ against `discount.rs`'s own `test_simple_distribution`/
 `test_remainder_distribution` plus authored skewed-subtotal vectors
 (`vectors/discount.json`).
 
-**Not yet investigated** (real scope, not silently dropped): seat/slot
-min/max bounds enforcement, add-on/component matching logic during plan
-changes, and `calculate_coupons_discount` (`discount.rs:65-135`,
-percentage-then-fixed precedence — `Decimal`-typed throughout, so it would
-face the same modeling limits as the tax rate work, not the clean-integer
-target `distribute_discount` was).
+**Not yet investigated** (real scope, not silently dropped):
+`calculate_coupons_discount` (`discount.rs:65-135`, percentage-then-fixed
+precedence — `Decimal`-typed throughout, so it would face the same modeling
+limits as the tax rate work, not the clean-integer target
+`distribute_discount` was).
+
+## `recompute_amount_due_from_settled_payments`: monotone and exact
+
+The concrete invariant "migrations" surfaced. `InvoiceAmountDue.lean`
+proves `new_amount_due = max(0, total - applied_credits - cancelled_sum -
+settled_sum)` (`diesel-models/src/query/invoices.rs:663-732`) is
+non-negative by construction, monotone in `settled_sum` (more net settled
+payment never increases `amount_due` — the property a sign-flip bug, e.g.
+crediting `amount_refunded` instead of debiting it, would break
+immediately), and reaches exactly `0` iff settled payments cover the
+remaining balance. Models the aggregation formula only, not the SQL row
+filtering that produces its inputs, and not whether the `Refunded` status
+transition and `amount_refunded` field are kept consistent elsewhere in the
+codebase (an open, undischarged assumption, flagged not verified).
+
+## Two more real bugs, from scoping `meteroid-store` further
+
+**Slot/seat bounds: the check is correct, one mutation path skips it
+entirely.** `SlotBounds.lean` proves `validate_slot_limits`
+(`repositories/subscriptions/slots.rs:211-239`) itself is exactly the
+intended `[min_slots, max_slots]` inclusive-range predicate (no off-by-one).
+But grepping every call site in `services/subscriptions/slots.rs` finds
+exactly two — `preview_slot_update` (`:668`) and
+`complete_slot_upgrade_checkout` (`:807`). **`update_subscription_slots`
+(`:37-173`) — the mutation entrypoint for `Optimistic` upgrades and every
+downgrade — never calls it.** Sharper than `SubscriptionStatus.lean`'s "no
+centralized guard exists": here the guard function exists and is correct,
+it is simply not wired into one of its three real call sites. Documented
+in the Lean file's module doc (a Rust call-graph fact, not something a pure
+arithmetic theorem states) alongside a proof that the check function itself
+would have caught the violation if called.
+
+**Component matching: `.find()` on a non-unique key double-matches.**
+`build_plan_change_preview` (`services/subscriptions/plan_change.rs:1534-1616`)
+matches each target price component to a current one by `product_id`, not a
+stable per-component id (`:1554-1558`), scanning the full current list
+fresh for every target with nothing consumed between iterations.
+`ComponentMatching.lean`'s `double_match_bug` constructs the exact failing
+shape (two current components sharing a product, two targets wanting that
+product): both targets match the SAME first current component — it gets
+credited twice — while the second current component is matched by neither
+and falls into `removed` even though a target for its product exists. This
+isn't a mis-labeling bug, it's a real over-crediting bug on plan changes
+where a product backs more than one price component.

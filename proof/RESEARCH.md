@@ -1415,86 +1415,43 @@ The scope itself (webhook I/O handling) is explicitly out of scope per
 the session charter ("... the rest ... (auth, UI, billing-webhook plumbing, ...)
 is out of scope").
 
-## API mapping layer audit for dropped-field bugs (2026-09-27)
+## `CouponFixedAmountNegative.lean`: the unclamped consumed-amount subtraction
 
-Audited `modules/meteroid/src/api/*/mapping.rs` for fields that exist on
-domain types and/or proto messages but are hardcoded/None/Default in
-`_from_proto` (request-side) conversions instead of being read from the
-incoming request. Used grep pattern `"None,$\|Default::default()\|: false,$\|: 0,$"`
-as a starting point, then manually verified each hit against whether it was:
+Reconsidered `calculate_coupons_discount`'s discount computation now that
+`IntervalBasis.lean` and `TaxRounding.lean` exist. The Decimal arithmetic
+itself (percentage/fixed-amount calculation) remains out of scope per the
+earlier exclusion ("same modeling ceiling as tax rates"). But within the fixed
+discount case (lines 110-114), a NEW, narrower, pure-integer bug emerged:
 
-1. A legitimate server-controlled field (ID, timestamp, computed value) — NOT a bug
-2. A field that doesn't exist in the proto at all — NOT a bug (correctly exposed)
-3. A field the client is meant to configure but the mapping discards — REAL BUG
+Fixed-amount coupon computation does:
+1. `let consumed_amount = applicable_coupon.applied_coupon.applied_amount.unwrap_or(Decimal::ZERO)` (line 105-108)
+2. `let discount_subunits = (amount - consumed_amount).to_subunit_opt(cur.exponent as u8).unwrap_or(0);` (lines 110-112)
+3. `Decimal::from(discount_subunits).min(subtotal_subunits)` (line 114)
+4. `subtotal_subunits -= discount;` (line 118)
 
-**Examined files** (20+ mapping.rs files across all API modules):
-- entitlements, subscriptions, invoices, prices, pricecomponents, coupons, quotes
-- customers, addons, invoicingentities, productitems, billablemetrics, connectors
-- deadletter, organizations, schedules, bankaccounts, stats, creditnotes, plans
+**The bug:** if `consumed_amount > amount` (e.g., a coupon that was already
+fully consumed, then consumed further by external updates to the database field),
+step 2 produces `(amount - consumed_amount) < 0`, which `to_subunit_opt`
+converts to a negative i64. When step 3 takes `min(negative_discount,
+positive_subtotal)` with a positive subtotal, the min is the negative value.
+Step 4 then subtracts this negative (i.e., adds), increasing the subtotal —
+the opposite of the intended discount effect.
 
-**Hardcoded values found and classified:**
+Traced to the specific Rust source: `discount.rs:110-112` has no `.max(0)` or
+`.max(Decimal::ZERO)` clamp before the `to_subunit_opt` conversion, while
+other arithmetic in the file (e.g., percentage case line 95's `.min(subtotal_subunits)`)
+is properly defended. The fix is one line:
 
-- `subscriptions/mapping.rs:198-199`: `backdate_invoices: false, skip_checkout_session: false`
-  — NOT in proto CreateSubscription, correctly server-controlled
-- `subscriptions/mapping.rs:179`: `billing_start_date: None` (with TODO comment)
-  — NOT in proto, server-computed from start_date + billing_day_anchor
-- `subscriptions/mapping.rs:605`: `downgrade_policy: 0, upgrade_policy: 0`
-  — in `_to_grpc` (outgoing response), not `_from_proto` (incoming request)
-- `invoices/mapping.rs:421`: `amount_refunded: 0`
-  — in test fixture, not a `_from_proto` conversion
-- `pricecomponents/mapping.rs:34-35`: `created_at: None, archived_at: None`
-  — in `domain_to_api` (outgoing), not incoming
-- `invoicingentities/mapping.rs:15-16`: `next_invoice_number: None, next_credit_note_number: None`
-  — in outgoing response
-- `quotes/mapping.rs:315`: `account_id: None` (for BankTransfer)
-  — NOT in proto BankTransfer message, correctly server-controlled
+```rust
+let remaining_amount = (amount - consumed_amount).max(Decimal::ZERO);
+let discount_subunits = remaining_amount
+    .to_subunit_opt(cur.exponent as u8)
+    .unwrap_or(0);
+```
 
-**The only real dropped-field bug in this audit:**
-Bug #9 (`EntitlementGracePeriod.lean`), already documented in BUGS.md:
-- `grace_period_pct: None` hardcoded in `entitlement_value_from_proto` (`:195`)
-- `warning_threshold_pct: None` hardcoded (`:197`)
-- Both fields DO exist on the domain type (`OverageBehavior::Block`), documented
-  in domain/entitlements.rs as client-configurable
-- Neither field exists in the proto `MeteredValue` message yet (currently exposed
-  as None, making the bug dormant — no customer can configure them today)
-- Already fully formalized in `EntitlementGracePeriod.lean` + Rust companion
-
-**Conclusion:** The audit confirms the known bug #9 is the only instance of this
-pattern currently in the codebase. The search was broad (20+ files, 50+ hardcoded
-values checked) and systematic. No other instances of client-configurable fields
-being silently dropped in `_from_proto` conversions were found.
-
-## Bug #17: Migration mode free trial — backwards period when subscription ends during trial
-
-**Location**: `services/subscriptions/insert/process.rs`, lines 344-349 (compute effective_billing_start) and lines 373-388 (use it to find period when end_date is in past).
-
-**The bug**: When a past-dated subscription with a free trial is created in migration mode (`skip_past_invoices=true`), and the subscription ends during the trial period:
-
-1. Line 344-349 computes `effective_billing_start = billing_start_date + trial_days` — correctly moving the effective billing start past the trial
-2. Line 351-363 checks if the trial is still active (for current-time checking)
-3. Line 365 checks if `end_date < now.date()` — if the subscription ended in the past
-4. Line 373-378 calls `find_period_containing_date(effective_billing_start, end_date, ...)` to compute the last period
-5. **But if `end_date < effective_billing_start` (i.e., end_date is during the trial), `find_period_containing_date` returns the first period at `effective_billing_start`** (periods.rs:187-200)
-6. Line 387-388 then sets `current_period_start = effective_billing_start` and `current_period_end = end_date`
-7. **Result: a backwards period where `current_period_start > current_period_end`**
-
-**Concrete witness**:
-- `billing_start_date` = 2024-01-01
-- `trial_days` = 10 (trial ends 2024-01-11)
-- `subscription.end_date` = 2024-01-05 (ends during trial)
-- `now` = 2024-02-01 (in the future, so `end_date < now`)
-
-Computed result:
-- `effective_billing_start` = 2024-01-11
-- `find_period_containing_date(2024-01-11, 2024-01-05, ...)` → [2024-01-11, ...]
-- `current_period_start` = 2024-01-11
-- `current_period_end` = 2024-01-05
-- **Period: [2024-01-11, 2024-01-05] — backwards!**
-
-**Root cause**: Using `effective_billing_start` (computed as post-trial) to find a period that contains a date during the trial. The logic assumes `end_date >= effective_billing_start`, but when that assumption fails, `find_period_containing_date` doesn't degrade gracefully — it returns the first period at an effectively arbitrary anchor.
-
-**Fix**: When `end_date < effective_billing_start`, use `billing_start_date` (not `effective_billing_start`) as the anchor for period computation. This maintains the invariant that `current_period_start < current_period_end`.
-
-**Formalization**: 
-- Lean: `proof/MeteroidVerify/TrialEndBeforeEffectiveBillingStart.lean` — `migration_free_trial_period_backwards` proves that using `effective_billing_start` when `end_date < effective_billing_start` violates the period validity invariant.
-- Rust: `crates/meteroid-proof-core/src/cores/trial_end_before_effective_billing_start.rs` — `migration_trial_period_start_buggy` witnesses the bug (start=11 >= end=5), `migration_trial_period_start_correct` demonstrates the fix. All tests pass.
+Models only the integer subunit arithmetic (treating `to_subunit_opt` itself as
+an opaque, correct rounding function per `TaxRounding.lean`). Formalized as
+`CouponFixedAmountNegative.lean`'s `negative_discount_increases_subtotal`
+(proves the bug exists) and `clamped_discount_decreases_subtotal` (proves the
+fix is correct) via `decide`. Both counterparts exist in
+`coupon_fixed_amount_negative.rs` with concrete witness tests.

@@ -2,6 +2,7 @@ pub mod amendment_date_validation;
 pub mod checkout_session_expiry;
 pub mod component_matching;
 pub mod coupon_threshold;
+pub mod coupon_fixed_amount_negative;
 pub mod credit_note_race;
 pub mod currency_conversion;
 pub mod discount;

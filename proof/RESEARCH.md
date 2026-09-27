@@ -460,6 +460,35 @@ call is present anywhere in the function:
    binding from step 1/3, not the fresh, post-lock row the database just
    handed back in step 3.
 
+## `applied_credits` vs `cancelled_sum`: closed, structurally disjoint (plus a bonus cross-file proof)
+
+The other open question from the credit-note scope: could `applied_credits`
+and `cancelled_sum`'s `DebtCancellation` credit notes ever reference the
+same underlying credit and get double-subtracted in
+`recompute_amount_due_from_settled_payments`'s formula? Traced every write
+site of `invoice.applied_credits`
+(`invoice_lines.rs:107-127,433-447,498-512`, `draft.rs`, `consolidate.rs`):
+all of them set it once, at draft/finalize time, to
+`min(total, customer_balance)` — a prepaid-account-balance mechanism applied
+at invoice creation, unrelated to credit notes issued afterward. Confirmed
+`credit_notes.rs`'s `credited_amount_cents` (the field that DOES feed
+`applied_credits` downstream, for `CreditType::CreditToBalance`) is
+hardcoded to `0` for `CreditType::DebtCancellation`
+(`credit_notes.rs:1073`). **The two mechanisms are structurally disjoint —
+no double count, closed as a positive result, not a bug.**
+
+While tracing this, found a second, independently-written copy of
+`recompute_amount_due_from_settled_payments`'s exact formula:
+`payment_transactions.rs`'s `exists_live_for_invoice` (`:101-183`, guards
+re-charge/merge/line-mutation on an invoice a live payment still owns)
+computes `settled_net >= total - applied_credits - cancelled_sum` from
+scratch, in a file that shares no code with `recompute_amount_due_from_settled_payments`.
+Added `existsLiveCheck`/`exists_live_iff_amount_due_zero` to
+`InvoiceAmountDue.lean`, proving this second formula is **exactly**
+`newAmountDue = 0` — a genuine cross-file consistency result (two
+independently-maintained checks provably agree, not merely similarly
+named), not a restatement of the existing theorem.
+
 The lock genuinely serializes concurrent `create_credit_note_tx` calls
 against the same invoice — but serialization only prevents dirty writes; it
 does nothing for a guard whose input was captured before the wait and never

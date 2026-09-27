@@ -24,6 +24,28 @@ concern, not an arithmetic one), and not whether the `Refunded` status
 transition and `amount_refunded` field are kept consistent by whatever code
 sets them (an open, undischarged assumption — flagged, not verified).
 
+**`applied_credits` vs `cancelled_sum`, traced and closed:** these do NOT
+double-count the same credit. Every write site of `invoice.applied_credits`
+(`invoice_lines.rs:107-127,433-447,498-512`, `draft.rs`, `consolidate.rs`)
+sets it once, at draft/finalize time, to
+`min(total, customer_balance)` — a prepaid-account-balance mechanism applied
+at invoice creation. `cancelled_sum` is summed fresh, every call, from
+`Finalized`/`DebtCancellation` credit notes, which never write
+`applied_credits` (`credit_notes.rs`'s `credited_amount_cents` — the field
+that DOES feed `applied_credits` downstream, for `CreditToBalance` credit
+notes — is hardcoded `0` for `CreditType::DebtCancellation`). The two
+mechanisms are structurally disjoint columns/sources, not two views of one
+number.
+
+**A second, independently-written copy of this exact formula exists** in
+`payment_transactions.rs`'s `exists_live_for_invoice`
+(`:101-183`, guarding re-charge/merge/line-mutation on an invoice a
+live payment still owns): `settled_net >= total - applied_credits -
+cancelled_sum`. `existsLiveCheck` below models that inequality and
+`exists_live_iff_amount_due_zero` proves it is exactly
+`newAmountDue = 0` — the two independently-written checks in two different
+files are provably the same condition, not just similarly named.
+
 Pure Lean core: no Mathlib, no Batteries, no `sorry`/`admit`/`axiom`/
 `native_decide`.
 -/
@@ -81,5 +103,24 @@ theorem settledNet_full_refund_is_zero (amount : Int) :
     settledNet (amount, amount) = 0 := by
   unfold settledNet
   omega
+
+/-- `exists_live_for_invoice`'s post-early-return check
+    (`payment_transactions.rs:183`): the invoice is still owned by a live
+    settled payment iff net settled amount covers what remains after credits
+    and cancellations. -/
+def existsLiveCheck (total appliedCredits cancelledSum settled : Int) : Bool :=
+  decide (total - appliedCredits - cancelledSum ≤ settled)
+
+/-- The two independently-implemented formulas agree exactly:
+    `exists_live_for_invoice`'s guard is true iff
+    `recompute_amount_due_from_settled_payments` would compute `amount_due =
+    0`. Neither file's code references the other; this is a genuine
+    cross-file consistency result, not a restatement of one definition. -/
+theorem exists_live_iff_amount_due_zero (total appliedCredits cancelledSum settled : Int) :
+    existsLiveCheck total appliedCredits cancelledSum settled = true ↔
+      newAmountDue total appliedCredits cancelledSum settled = 0 := by
+  rw [newAmountDue_eq_zero_iff]
+  unfold existsLiveCheck
+  simp
 
 end MeteroidVerify

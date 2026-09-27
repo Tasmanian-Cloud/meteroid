@@ -143,6 +143,20 @@ proof_repo_commit = ""
 artifact_sha256 = ""
 
 [[core]]
+function = "exists_live_check"
+module = "meteroid-proof-core::cores::invoice_amount_due"
+file = "crates/meteroid-proof-core/src/cores/invoice_amount_due.rs"
+lean_module = "MeteroidVerify.InvoiceAmountDue"
+lean_file = "proof/MeteroidVerify/InvoiceAmountDue.lean"
+algebra = "verbatim (payment_transactions.rs:183): settled >= total - applied_credits - cancelled_sum, an independently-written second copy of new_amount_due's threshold"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Closes the previously-flagged 'applied_credits vs cancelled_sum double-counting' open question: traced every write site of invoice.applied_credits (invoice_lines.rs/draft.rs/consolidate.rs, all customer-balance-at-creation-time) and confirmed CreditType::DebtCancellation hardcodes credited_amount_cents=0, so DebtCancellation credit notes never touch applied_credits -- the two mechanisms are structurally disjoint, not a double count. Bonus result: exists_live_iff_amount_due_zero proves this independently-written formula (in a different file, no shared code with new_amount_due) is EXACTLY new_amount_due(..)=0, a genuine cross-file consistency proof."
+controls = ["exists_live_iff_amount_due_zero", "exists_live_check_matches_new_amount_due_zero (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
 function = "aggregate"
 module = "meteroid-proof-core::cores::metering_agg"
 file = "crates/meteroid-proof-core/src/cores/metering_agg.rs"

@@ -934,6 +934,91 @@ changes: upgrades/downgrades, proration, MRR recalculation) end-to-end:
 No additional formal-verification findings in `plan_change.rs` beyond the two
 already modeled.
 
+## `amendment.rs` proration precondition violation: out-of-bounds effective_date
+
+Examined `services/subscriptions/amendment.rs::apply_amendment_immediate`
+(line 126 onwards) and found a real precondition violation affecting proration
+calculations.
+
+**The bug:**
+
+`amendment_effective_date(sub_details, is_immediate=true)` (line 1128-1136)
+returns `Utc::now().naive_utc().date()` — today's date in UTC. This date is
+then passed to `calculate_proration` (line 161) **without validating** that it
+falls within the subscription's current billing period
+`[current_period_start, current_period_end]`.
+
+By contrast, `plan_change.rs::prepare_plan_change` (lines 747-752) **does**
+validate that `change_date` is within the period, rejecting out-of-bounds dates
+with an error.
+
+`Proration.lean` (the module doc, lines 45-54) states this explicitly: the
+precondition that `change_date` is between `period_start` and `period_end` is
+"an implicit precondition on the caller, not something `calculate_proration`
+or `component_proration_factor` defends." This precondition is **satisfied in
+`plan_change.rs`** (which validates) but **violated in `amendment.rs`** (which
+does not).
+
+**Concrete scenario:**
+- Subscription's current period: [2025-01-01, 2025-02-01) = 31 days
+- Today's date (when amendment is applied): 2025-02-15 (after period_end)
+- `amendment_effective_date` returns 2025-02-15
+- `calculate_proration` is called with period_end=2025-02-01, effective_date=2025-02-15
+- days_remaining = 2025-02-01 - 2025-02-15 = -14 days (negative!)
+- days_in_period = 2025-02-01 - 2025-01-01 = 31 days
+- proration_factor = -14 / 31 ≈ -0.45 (negative!)
+
+For a component whose billing period is **aligned** with the subscription
+(the common case, e.g., a monthly component on a monthly subscription),
+`component_proration_factor` passes this negative factor straight through
+without clamping (see `componentProrationFactor` aligned branch,
+`Proration.lean` line 109). This produces incorrect charges:
+- A $100 monthly component is credited for 100 × (-0.45) = -$45,
+  effectively reversing the credit into a charge.
+
+**Asymmetry in `component_proration_factor`:**
+
+The Lean proof `Proration.lean` formalizes this asymmetry with two theorems:
+- `aligned_branch_can_escape_unit_interval`: aligned case (daysInPeriod=30,
+  nominal=30 for monthly) lets factor 2 pass through unchanged → result 2
+- `misaligned_branch_clamps_out_of_range_factor`: misaligned case
+  (daysInPeriod=1000) clamps the same factor 2 to 1 → result 1
+
+The aligned branch doesn't defend against out-of-range factors. A negative
+factor from an out-of-bounds effective_date will escape unclamped.
+
+**Formalization:**
+
+`AmendmentDateValidation.lean` models the bug as an integer proration factor
+(proxy for f64 `days_remaining / days_in_period`). Key theorems:
+
+- `amendment_scenario_aligned`: proves that when effective_date is after
+  period_end (giving -14 days), the aligned period branch produces a
+  prorated amount of -140000 cents (the negative crediting bug).
+- `aligned_case_negative_factor_bug`: demonstrates the asymmetry:
+  `proratedAmountAligned 10000 (-2) = -20000` (no clamping).
+- `precondition_violated_aligned_broken`: shows that misaligned periods
+  are still safe (`proratedAmountMisaligned 10000 (-2) = 0`), only aligned
+  periods fail.
+
+**Fix:** Add a validation check in `amendment.rs` line 126-127, matching the
+pattern in `plan_change.rs` lines 747-752:
+
+```rust
+if effective_date < period_start || effective_date > period_end {
+    return Err(Report::new(StoreError::InvalidArgument(format!(
+        "Amendment effective date {} is outside current period [{}, {}]",
+        effective_date, period_start, period_end
+    ))));
+}
+```
+
+**Impact:** In practice, an amendment applied long after the subscription's
+current period ends would be rejected rather than silently producing
+backwards credits. The window is wide: any time the system processes an
+amendment after the subscription's billing period has transitioned to the next
+cycle, the bug would trigger.
+
 ## Checkout session expiry boundary condition bug
 
 `CheckoutSession::is_expired()` (`domain/checkout_sessions.rs:81-84`) uses
@@ -1324,106 +1409,3 @@ formalize. The mechanism is a straightforward I/O-level deduplication guard
 The scope itself (webhook I/O handling) is explicitly out of scope per
 the session charter ("... the rest ... (auth, UI, billing-webhook plumbing, ...)
 is out of scope").
-
-## Basis audit 2026-09-27: candidates A and B do not unify
-
-Two specific candidate unifications were investigated: whether `CurrencyConversion.lean` and
-`EntitlementGracePeriod.lean` (candidate A) share a genuine "missing scale factor" basis shape,
-and whether `CouponThreshold.lean`, `CheckoutSessionExpiry.lean`, and `QuoteExpiry.lean`
-(candidate B) share a genuine "boundary inequality" basis shape. Both were found to NOT unify.
-
-### Candidate A (Scale Factor): Rejected — different structural roles for the missing factor
-
-**CurrencyConversion.lean** (line references `customer_balance.rs:40`):
-```
-Real:    convertCurrency = amountCents * rate
-Correct: convertCurrencyScaled = amountCents * rate * 10^toExponent / 10^fromExponent
-Missing factor: 10^(toExponent - fromExponent), applied to the RESULT of multiplication
-```
-
-**EntitlementGracePeriod.lean** (line references `entitlements.rs:320`):
-```
-Real:      entitlementEnabledReal = (consumed < limit)
-Intended:  entitlementEnabledIntended = (100 * consumed < limit * (100 + gracePct))
-Missing factor: (100 + gracePct) / 100, applied to the LIMIT threshold (right side of comparison)
-```
-
-**Why NOT a single basis:** The two bugs have superficially similar high-level shape
-("a value is computed/compared without a multiplicative correction term") but differ
-structurally in WHERE the missing factor matters:
-
-1. In `CurrencyConversion`, the missing factor is a RESULT SCALER: it multiplies the
-   computed value `amountCents * rate`. The formula shape is `value * (correction1 / correction2)`,
-   staying in exact integer arithmetic when the division is exact.
-
-2. In `EntitlementGracePeriod`, the missing factor is a THRESHOLD SCALER: it multiplies
-   the limit being compared against. The formula shape is `value < threshold * (correction1 / correction2)`,
-   and the bug is in the decision logic (comparison), not in the arithmetic.
-
-A unified basis would need to encode "missing multiplicative factor" in a form that works
-identically for both cases — either composable as a result multiplier OR as a threshold
-multiplier. No single combinator naturally covers both. Attempting to unify would force
-an abstraction that either:
-- Is so generic (e.g., `scaled x factor`) that it doesn't capture the asymmetry between
-  the two use cases and becomes a proof-once-use-everywhere template with no reusable structure,
-  or
-- Requires separate sub-lemmas for "scaling a result" and "scaling a threshold",
-  eliminating the claimed unification.
-
-The discipline established by `PaymentReversal.lean`'s retrofit (refusing to force a fit
-where the basis doesn't naturally have one) means: **do not build a `ScaleFactorBasis`**.
-
-### Candidate B (Boundary Inequality): Rejected — three different bug patterns, not one
-
-**CouponThreshold.lean** (line reference `discount.rs:89-116`):
-- Real: `if remaining ≤ 1 then none else some (remaining - discount)`
-- Pattern: **CHECK HAPPENS BEFORE OPERATION** — the boundary check runs before the discount
-  is applied, so a `remaining` of exactly 1 never gets discounted.
-- Bug mechanism: Check-then-apply ordering at the wrong point in the loop.
-
-**CheckoutSessionExpiry.lean** (line reference `checkout_sessions.rs:81-84`):
-- Real: `Utc::now() > exp` (strict inequality)
-- Correct: `Utc::now() >= exp` (inclusive inequality)
-- Pattern: **WRONG COMPARISON OPERATOR** — uses strict `>` where inclusive `>=` is needed.
-- Bug mechanism: Boundary value off by one in the comparison itself.
-
-**QuoteExpiry.lean** (line reference `quotes.rs:21-61`):
-- Real: checks `status == Accepted` and `!converted` only
-- Correct: also checks `!expired`
-- Pattern: **CHECK IS ENTIRELY MISSING** — the expiry guard is not present at all.
-- Bug mechanism: Absence of a boundary check, not a wrong boundary check.
-
-**Why NOT a single basis:** All three involve "boundary conditions," but they are three
-DIFFERENT bug patterns, not three instances of the same pattern:
-
-1. **CouponThreshold** is about TIMING: the check and operation are in the wrong order relative
-   to each other. The fix is restructuring the loop (apply-then-check, or check after-the-fact),
-   not a lemma about boundary comparisons.
-
-2. **CheckoutSessionExpiry** is about COMPARISON OPERATOR: a single `>` vs `>=` choice in
-   one place. The fix is changing the operator (or equivalently, swapping the operands).
-
-3. **QuoteExpiry** is about GUARD ABSENCE: an entire conditional branch is missing.
-   The fix is adding a check that doesn't currently exist.
-
-No reusable basis would cover all three. A lemma about "off-by-one in comparisons"
-(what CheckoutSessionExpiry+CouponThreshold might share) would not address QuoteExpiry's
-missing-guard problem. A "boundary-condition patterns" basis would be so vague that it
-would not actually encode a reusable proof strategy — each of the three would still need
-its own independent proof.
-
-The discipline established by the earlier audits: **do not build a `BoundaryBasis`**.
-
-### Summary
-
-**Candidate A:** Rejected. The two bugs use superficially similar "missing multiplication" language
-but differ in structural role (result scaler vs. threshold scaler), and don't compose cleanly.
-
-**Candidate B:** Rejected. The three bugs all involve boundaries, but in three structurally different
-ways (timing, operator, absence), and don't unify into a reusable proof pattern.
-
-No new basis modules were built. The existing `LedgerFold.lean` and `IntervalBasis.lean`
-remain the only two basis modules, and the audited files (`CurrencyConversion`, `EntitlementGracePeriod`,
-`CouponThreshold`, `CheckoutSessionExpiry`, `QuoteExpiry`, and the earlier-audited
-`TierPricing`, `SubscriptionStatus`, `CreditNoteRace`, etc.) are correctly left as
-stand-alone proofs rather than retrofitted onto a forced unification.

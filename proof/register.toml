@@ -288,6 +288,15 @@ controls = ["matches_meteroid_tax_test_rounding_behavior", "midpoint_rounds_away
 # doesn't fit this schema's "one row per #[pure_core] function" shape, so it isn't forced
 # into one; lake build (proof/) is its own verification record.
 
+# LedgerFold.lean (ledgerTerm/ledgerCurrentValue/ledgerCurrentValue_eq_foldl/
+# stale_seed_diverges_from_true_ledger) has no [[core]] row here either, for the same
+# reason as FloatError.lean above: it is the shared basis MrrSlotStaleness.lean's
+# staleness_is_the_ledger_fold_bug cites (Song.Foundation.Term/state/spine/state_spine,
+# genuinely imported and built on, not a from-scratch model), not a standalone
+# #[pure_core] function with its own Rust companion. Its verification is that it builds
+# against `song` and that the domain files citing it (MrrSlotStaleness.lean) still build
+# and still prove the same concrete numbers through it.
+
 [[core]]
 function = "debt_cancellation_allowed"
 module = "meteroid-proof-core::cores::credit_note_race"

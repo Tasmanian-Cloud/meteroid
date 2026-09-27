@@ -5,6 +5,68 @@ Working directly inside the vendored `meteroid` fork (per Clay's direction
 package (`proof/`) and its Rust companion crates
 (`crates/meteroid-{pure,proof}-core`) live alongside the code they model.
 
+## The basis pivot: `LedgerFold.lean`, actually reusing `Song.Foundation`
+
+`proof/lakefile.lean`'s own comment always said the point of `require song`
+was to reuse `Song.Foundation`'s `Term`/`state` fold "rather than
+redefining a parallel one." Up to this point that never happened — every
+one of the (at the time) 21 Lean files here was self-contained, each
+defining its own local, disconnected types (`MrrSlotStaleness.lean`'s own
+`mrrGenericSlot`, `PaymentReversal.lean`'s own four ad-hoc clamp formulas,
+etc.) with no shared vocabulary between them, and the only real reuse of
+`song` was `FloatError.lean` citing `Float3`'s `roundU`/`roundU_bound` for
+the one f64-rounding seam.
+
+Corrected 2026-09-27, at Clay's direction: the goal is to model meteroid's
+logic against a genuine shared basis — in the same spirit as
+`Song.Float3` ("a float IS three integers," proved once, every rounding
+site since composes that instead of a fresh model per site) — rather than
+as N independent one-off proofs of similar-shaped facts.
+
+**The first basis module, `LedgerFold.lean`.** Read `Song/Foundation.lean`
+directly (not from memory): `Term α` is a binary tree over a carrier,
+`state op` folds it under a chosen operation, and `spine`/`state_spine`
+(`:138-151`) prove that growing a term by a stream of values and reading
+it is EXACTLY `List.foldl` over that stream — the abstract shape of
+"a seed plus an append-only ledger of deltas, read by folding." This is
+not a metaphor stretched onto meteroid's domain: `slot_transactions` (a
+seed row plus an append-only stream of `(delta, prev_active_slots)` rows,
+`domain/slot_transactions.rs`) IS this shape, verbatim. So are the dunning
+failure count, invoice/credit-note sequential numbering, and MRR movement
+logs — every "current value from history" pattern this session kept
+re-deriving independently.
+
+`LedgerFold.lean` genuinely `import Song.Foundation` and instantiates
+`ledgerTerm`/`ledgerCurrentValue` at `op = (+)`, proves
+`ledgerCurrentValue_eq_foldl` by citing `state_spine` (not re-deriving
+it), and names the bug shape generally: `stale_seed_diverges_from_true_ledger`
+states that reading a ledger's SEED alone (`ledgerCurrentValue seed []`,
+an un-extended `Term.K seed 0`) diverges from its TRUE current value
+whenever the recorded stream would actually move it. This is exactly
+`MrrSlotStaleness.lean`'s finding, restated as the general case rather
+than a slot-specific coincidence: `calculate_mrr`'s bug is precisely
+"reads the ledger's seed, not its fold." Wired the connection as a real,
+machine-checked theorem, not prose: `MrrSlotStaleness.lean` now
+`import`s `LedgerFold` and proves `staleness_is_the_ledger_fold_bug` —
+the SAME 5→10-slot-upgrade numbers as `stale_after_upgrade_witness`,
+derived by feeding `mrrGenericSlot`/`mrrSlotAware` the shared basis's
+`ledgerCurrentValue 5 []`/`ledgerCurrentValue 5 [5]` instead of bare
+integers. If this weren't a real fit, that link would not build; it does.
+
+**What this is NOT claiming.** Not every stateful computation in this
+codebase is a ledger fold. `PaymentReversal.lean`'s four clamp invariants
+and `EntitlementGracePeriod.lean`'s threshold check are a different shape
+— bounded-interval composition (clamp/max/min preserving a range), not
+stream-folding — and belong in a separate basis module (a `Basis.lean` for
+interval arithmetic: `clamp`, and how `+`/`max`/`min` compose bounds,
+proved once, so each of `PaymentReversal.lean`'s four proofs becomes
+"compose these primitives" instead of an independent `omega` search) —
+not yet built, next candidate for the same treatment. Retrofitting every
+existing file onto a shared basis, and identifying which OTHER files are
+secretly the same ledger-fold shape (a candidate list, not yet audited:
+the dunning failure count, invoice/credit-note numbering, MRR movement
+logs) is ongoing, not complete after one file.
+
 ## Scope and staging
 
 Staged across the three subsystems that carry meaningful semantics in an

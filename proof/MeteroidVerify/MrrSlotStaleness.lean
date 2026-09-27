@@ -1,3 +1,5 @@
+import MeteroidVerify.LedgerFold
+
 /-!
 # meteroid / MrrSlotStaleness — `calculate_mrr` reports the ORIGINAL slot count forever
 
@@ -47,6 +49,14 @@ claim about which specific call sites are reachable post-slot-change
 (that's the Rust call-graph fact traced above, not something this file
 re-derives).
 
+**Not a slot-specific coincidence.** `LedgerFold.lean` names the general
+shape: `mrr_generic_slot`'s input is a ledger's SEED-ONLY read
+(`ledgerCurrentValue seed []`, provably `= seed`); the correct
+input is the same ledger's FULL FOLD over its recorded stream
+(`ledgerCurrentValue seed deltas`). `staleness_is_the_ledger_fold_bug`
+below restates this file's own witness in those terms — the SAME numbers,
+derived by citing the shared basis rather than re-deriving them.
+
 Pure Lean core: no Mathlib, no Batteries, no `sorry`/`admit`/`axiom`/
 `native_decide`.
 -/
@@ -80,5 +90,14 @@ theorem agree_before_any_slot_change (initialSlots rateCents months : Int) :
     call sites — still reports the ORIGINAL 5-slot MRR. -/
 theorem stale_after_upgrade_witness :
     mrrGenericSlot 5 1000 1 = 5000 ∧ mrrSlotAware 10 1000 1 = 10000 := by decide
+
+/-- The link: `stale_after_upgrade_witness`'s exact numbers, re-derived by feeding
+    `mrrGenericSlot`/`mrrSlotAware` the shared basis's seed-only vs. full-fold ledger reads
+    (`ledgerCurrentValue 5 [] = 5`, `ledgerCurrentValue 5 [5] = 10` — the
+    5→10 upgrade as a single recorded delta) instead of the bare integers `5`/`10`. Same result,
+    derived from the general basis rather than restated as a slot-specific fact. -/
+theorem staleness_is_the_ledger_fold_bug :
+    mrrGenericSlot (ledgerCurrentValue 5 []) 1000 1 = 5000 ∧
+      mrrSlotAware (ledgerCurrentValue 5 [5]) 1000 1 = 10000 := by decide
 
 end MeteroidVerify

@@ -1,3 +1,4 @@
+pub mod amendment_date_validation;
 pub mod checkout_session_expiry;
 pub mod component_matching;
 pub mod coupon_threshold;

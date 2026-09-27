@@ -554,3 +554,31 @@ status_reason = "lake build green, 2026-09-27. Reference implementation modeling
 controls = ["expiry_boundary_correct_denies", "expiry_pre_boundary_both_allow", "expiry_post_boundary_both_deny", "test_expiry_real_world_window (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "prorated_amount_aligned"
+module = "meteroid-proof-core::cores::amendment_date_validation"
+file = "crates/meteroid-proof-core/src/cores/amendment_date_validation.rs"
+lean_module = "MeteroidVerify.AmendmentDateValidation"
+lean_file = "proof/MeteroidVerify/AmendmentDateValidation.lean"
+algebra = "the aligned branch (proration.rs:109): base_factor passed through with no clamp"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. CONFIRMED bug, all three links independently verified against the real source: (1) amendment_effective_date (amendment.rs:1140-1149) returns Utc::now() verbatim for the immediate case, no check against current_period_start/current_period_end; (2) plan_change.rs::prepare_plan_change (:745-750) has the exact contrasting guard (change_date < period_start || change_date > period_end -> Err), amendment.rs's immediate path has none; (3) days_remaining = (period_end - change_date).num_days() (proration.rs:163) goes negative when change_date > period_end, and component_proration_factor's aligned branch (:109) returns base_factor unclamped while the misaligned branch (:111) explicitly .clamp(0.0,1.0)s it. aligned_case_negative_factor_bug/amendment_scenario_aligned prove the concrete witness (period [2025-01-01,2025-02-01), effective_date 2025-02-15, aligned monthly $100 component: real code computes a $45 CHARGE instead of a credit) by decide."
+controls = ["aligned_case_negative_factor_bug", "amendment_scenario_aligned", "precondition_violated_aligned_broken", "aligned_branch_lets_a_negative_factor_through (Rust)", "amendment_rs_scenario_becomes_a_charge_instead_of_a_credit (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "prorated_amount_misaligned"
+module = "meteroid-proof-core::cores::amendment_date_validation"
+file = "crates/meteroid-proof-core/src/cores/amendment_date_validation.rs"
+lean_module = "MeteroidVerify.AmendmentDateValidation"
+lean_file = "proof/MeteroidVerify/AmendmentDateValidation.lean"
+algebra = "the misaligned branch (proration.rs:111): base_factor.clamp(0.0, 1.0) first"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Contrast case: the misaligned branch already clamps, so the same out-of-bounds precondition violation that breaks the aligned branch is harmless here. misaligned_case_clamps_negative_factor/precondition_violated_misaligned_safe prove this by decide."
+controls = ["misaligned_case_clamps_negative_factor", "precondition_violated_misaligned_safe", "misaligned_branch_clamps_the_same_negative_factor (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

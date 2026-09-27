@@ -1609,3 +1609,45 @@ validates the stored value is consistent with `trial_duration`, so if
 scenario), `period_transitions.rs` perpetuates it rather than catching or
 correcting it — but the formulas themselves agree.
 
+## Payment adapter amount/currency construction audit (2026-09-28)
+
+Scouted the four payment provider adapters (`stripe.rs`, `mollie.rs`, `gocardless.rs`, `stancer.rs`) for amount/currency handling bugs in webhook parsing and API response mapping. Each provider SDKencodes amounts according to its own convention; metameteroid must normalize to a consistent representation.
+
+**Stripe (`stripe.rs:929, 992, 1099`):** Webhook event parsing extracts:
+- `PaymentSucceeded`: `pi.amount_received.unwrap_or(pi.amount)` (line 929)
+- `PaymentRefunded`: `charge.amount_refunded` (line 992)
+- Disputes: `d.amount` (line 1099)
+
+All three extract Stripe's native amount representation directly. **Stripe has a well-known quirk: amounts are returned in cents for most currencies (EUR, USD, GBP, etc.) but in WHOLE units for zero-decimal currencies (JPY, KRW, VEF, etc.)** per Stripe's own documentation. The stripe-client SDK does NOT perform automatic conversion — the amounts are passed through verbatim from the API response. **If meteroid's `amount_minor` field is intended as a global, currency-agnostic minor-unit representation (e.g. always 100ths of the primary unit), this would produce a 100x error for any zero-decimal currency: JPY 10,000 from Stripe (representing 10,000 yen = 100 USD equivalent) would be stored as meteroid amount_minor 10,000, interpreted as 100 yen.** No local amount normalization is applied before storage.
+
+**Mollie (`mollie.rs:1372, 1389`):** Properly normalizes:
+- `parse_amount()` (line 904-912) calls `amount.to_minor(currency_exponent(&amount.currency)?)` on every Mollie API amount before storage
+- Refund: `parse_amount(amount, &format!("{} amountRefunded", payment.id))` (line 1372)
+- Dispute: `parse_amount(&chargeback.amount, ...)` (line 1389)
+
+**All** Mollie amounts go through `currency_exponent()` lookup (defined line ~900, likely delegates to a static table) before conversion to minor units. No bug found.
+
+**GoCardless (`gocardless.rs:1036-1044`):** Webhook `payments.confirmed` event:
+```rust
+NormalizedEventKind::PaymentSucceeded(PaymentSucceededEvent {
+    external_transaction_id: payment_id,
+    // Webhook carries no amount; the local transaction holds the
+    // requested amount (fees arrive via a separate payout event).
+    amount_received_minor: 0,
+    currency: String::new(),
+    ...
+})
+```
+
+The webhook event itself carries no amount; both fields are hardcoded to zero/empty. The comment acknowledges the gap: "Webhook carries no amount". Later, `fetch_refund()` (line 570-594) fetches the full payment object to read its cumulative refunded amount, but the initial settlement confirmation event carries zero as the received amount. This is a documentation gap, not a calculation error—the amount truly is not in the webhook body, and the handler is expected to fetch it separately. However, it means the initial `PaymentSucceeded` event cannot drive invoicing decisions without a follow-up fetch; the amount is effectively latent.
+
+**Stancer (`stancer.rs`):** Has no webhook mechanism at all (verified in capabilities at line 60 and code comment at line 11-13). Settlement is asynchronous and resolved via reconciliation polling, not webhooks. Amount handling is in the payment-intent create/update flow (lines 281-283) where Stancer API amounts are passed directly. Stancer's OpenAPI spec (not audited here, but referenced in comments) presumably specifies whether it uses zero-decimal currencies; if it does, the same conversion gap as Stripe would apply.
+
+**Conclusion:**
+1. Mollie: sound, currency-aware conversion
+2. GoCardless: hardcoded-zero amounts in events, expected behavior (fetch separately)
+3. Stripe and Stancer: direct pass-through of provider amounts with no conversion for zero-decimal currencies; reachability depends on whether `amount_minor` is meant to be provider-agnostic or Stripe-relative
+4. No new bugs found in the deduplication/idempotency layer itself (scope already covered in webhook-idempotency section).
+
+This audit did NOT formalize any Lean proofs — all findings are call-tracing observations rather than decidable arithmetic properties. The Stripe quirk is a design question (should `amount_minor` be provider-relative or globally normalized?) rather than a computational bug in the current code.
+

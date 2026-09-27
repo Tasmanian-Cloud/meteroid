@@ -18,3 +18,4 @@ pub mod scale_fee_display;
 pub mod slot_bounds;
 pub mod tax_rounding;
 pub mod tier_pricing;
+pub mod trial_end_before_effective_billing_start;

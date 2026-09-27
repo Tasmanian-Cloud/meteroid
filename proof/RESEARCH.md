@@ -1463,3 +1463,38 @@ Bug #9 (`EntitlementGracePeriod.lean`), already documented in BUGS.md:
 pattern currently in the codebase. The search was broad (20+ files, 50+ hardcoded
 values checked) and systematic. No other instances of client-configurable fields
 being silently dropped in `_from_proto` conversions were found.
+
+## Bug #17: Migration mode free trial — backwards period when subscription ends during trial
+
+**Location**: `services/subscriptions/insert/process.rs`, lines 344-349 (compute effective_billing_start) and lines 373-388 (use it to find period when end_date is in past).
+
+**The bug**: When a past-dated subscription with a free trial is created in migration mode (`skip_past_invoices=true`), and the subscription ends during the trial period:
+
+1. Line 344-349 computes `effective_billing_start = billing_start_date + trial_days` — correctly moving the effective billing start past the trial
+2. Line 351-363 checks if the trial is still active (for current-time checking)
+3. Line 365 checks if `end_date < now.date()` — if the subscription ended in the past
+4. Line 373-378 calls `find_period_containing_date(effective_billing_start, end_date, ...)` to compute the last period
+5. **But if `end_date < effective_billing_start` (i.e., end_date is during the trial), `find_period_containing_date` returns the first period at `effective_billing_start`** (periods.rs:187-200)
+6. Line 387-388 then sets `current_period_start = effective_billing_start` and `current_period_end = end_date`
+7. **Result: a backwards period where `current_period_start > current_period_end`**
+
+**Concrete witness**:
+- `billing_start_date` = 2024-01-01
+- `trial_days` = 10 (trial ends 2024-01-11)
+- `subscription.end_date` = 2024-01-05 (ends during trial)
+- `now` = 2024-02-01 (in the future, so `end_date < now`)
+
+Computed result:
+- `effective_billing_start` = 2024-01-11
+- `find_period_containing_date(2024-01-11, 2024-01-05, ...)` → [2024-01-11, ...]
+- `current_period_start` = 2024-01-11
+- `current_period_end` = 2024-01-05
+- **Period: [2024-01-11, 2024-01-05] — backwards!**
+
+**Root cause**: Using `effective_billing_start` (computed as post-trial) to find a period that contains a date during the trial. The logic assumes `end_date >= effective_billing_start`, but when that assumption fails, `find_period_containing_date` doesn't degrade gracefully — it returns the first period at an effectively arbitrary anchor.
+
+**Fix**: When `end_date < effective_billing_start`, use `billing_start_date` (not `effective_billing_start`) as the anchor for period computation. This maintains the invariant that `current_period_start < current_period_end`.
+
+**Formalization**: 
+- Lean: `proof/MeteroidVerify/TrialEndBeforeEffectiveBillingStart.lean` — `migration_free_trial_period_backwards` proves that using `effective_billing_start` when `end_date < effective_billing_start` violates the period validity invariant.
+- Rust: `crates/meteroid-proof-core/src/cores/trial_end_before_effective_billing_start.rs` — `migration_trial_period_start_buggy` witnesses the bug (start=11 >= end=5), `migration_trial_period_start_correct` demonstrates the fix. All tests pass.

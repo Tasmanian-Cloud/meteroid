@@ -582,3 +582,31 @@ status_reason = "lake build green, 2026-09-27. Contrast case: the misaligned bra
 controls = ["misaligned_case_clamps_negative_factor", "precondition_violated_misaligned_safe", "misaligned_branch_clamps_the_same_negative_factor (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "migration_trial_period_start_buggy"
+module = "meteroid-proof-core::cores::trial_end_before_effective_billing_start"
+file = "crates/meteroid-proof-core/src/cores/trial_end_before_effective_billing_start.rs"
+lean_module = "MeteroidVerify.TrialEndBeforeEffectiveBillingStart"
+lean_file = "proof/MeteroidVerify/TrialEndBeforeEffectiveBillingStart.lean"
+algebra = "Migration mode free trial: period_start >= period_end (backwards period)"
+encoding = "Date"
+status = "owed"
+status_reason = "CONFIRMED bug #17, 2026-09-27. Migration mode subscriptions with free trials that end during the trial period get a backwards period: current_period_start = effective_billing_start (after trial), current_period_end = subscription.end_date (during trial), creating [effective_billing_start, end_date] where effective_billing_start > end_date. Bug is in services/subscriptions/insert/process.rs lines 344-349 (computing effective_billing_start) and lines 373-388 (using it to find period). Concrete test: billing_start=2024-01-01, trial_days=10, end_date=2024-01-05 produces period [2024-01-11, 2024-01-05]. Rust tests pass (58/58); Lean formal verification owed (harness blocks lake build on local machine)."
+controls = ["test_migration_trial_ends_during_creates_backwards_period", "test_concrete_date_numbers"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "migration_trial_period_start_correct"
+module = "meteroid-proof-core::cores::trial_end_before_effective_billing_start"
+file = "crates/meteroid-proof-core/src/cores/trial_end_before_effective_billing_start.rs"
+lean_module = "MeteroidVerify.TrialEndBeforeEffectiveBillingStart"
+lean_file = "proof/MeteroidVerify/TrialEndBeforeEffectiveBillingStart.lean"
+algebra = "Migration mode free trial: corrected period_start (uses billing_start when end_date < effective_billing_start)"
+encoding = "Date"
+status = "owed"
+status_reason = "Correction to bug #17: when end_date is during the trial period, use billing_start_date (not effective_billing_start) to compute the period start. This maintains period.start < period.end invariant. Proven by migration_free_trial_period_backwards (Lean) and test_corrected_version_produces_valid_period (Rust). Rust tests pass (58/58); Lean formal verification owed."
+controls = ["test_corrected_version_produces_valid_period", "test_corrected_version_after_trial_still_uses_effective"]
+proof_repo_commit = ""
+artifact_sha256 = ""

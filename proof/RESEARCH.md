@@ -1118,6 +1118,55 @@ modules capture genuinely recurring patterns; not every file on the audit list
 is an instance of either pattern. No retrofit attempted; all four files left
 unmodified.
 
+## Basis retrofit audit: four files examined, none retrofitted (genuine fit required)
+
+Third parallel audit (2026-09-27) of `DiscountConservation.lean`, `InvoiceAmountDue.lean`,
+`RefundInvariant.lean`, and `Metering.lean` against the same two basis modules.
+The requirement was strict: only retrofit if the file's formulas genuinely
+expressed the basis's primitives, not because they seemed vaguely related.
+
+**DiscountConservation.lean**: floor-division apportionment algorithm
+(`distribute_discount`, largest-remainder Hamilton method). Primary theorems
+are `sum_pass1_eq` (a floor-division identity over lists, proved by induction),
+`pass1_sum_le_discount` (pass-1 total ≤ discount), and `pass1_taxable_pos`
+(each item's floor-divided share < its own subtotal when discount < total).
+This is genuinely its own mathematical domain (discrete apportionment theory,
+not ledger folding or bounded quantity composition). Audit result: **leave
+alone**. One sentence: floor-division apportionment is its own domain; LedgerFold
+targets append-only ledger deltas, IntervalBasis targets clamped-interval composition.
+
+**InvoiceAmountDue.lean**: `newAmountDue = max(0, total - appliedCredits -
+cancelledSum - settled)`. Has a lower bound (non-negativity via max) but no
+upper bound on the magnitude. IntervalBasis is designed for both-sided interval
+bounds (`clampInterval lo hi x`), where every lemma (`clampInterval_mem`,
+`add_mem`, `max_mem`, `min_mem`) assumes and preserves both lo ≤ value ≤ hi.
+A one-sided lower bound doesn't naturally fit that pattern. Audit result:
+**leave alone**. One sentence: one-sided lower-bound clamp (max 0) doesn't fit
+the both-sided interval pattern IntervalBasis requires.
+
+**RefundInvariant.lean**: `newStatus` decision on `new_amount_refunded ≥
+amount`, and `newStatus_refunded_iff_exact` proving that under the clamp
+`[0, amount]`, this inequality becomes an equality test. The proof is short
+case-by-case reasoning, not bound composition. While the hypotheses mention
+bounded quantities, the proof logic (case analysis on the inequality) doesn't
+actually compose any basis lemmas — it's a logical equivalence, not an arithmetic
+bound. Audit result: **leave alone**. One sentence: proof is logical equivalence
+via case analysis, not bound composition; IntervalBasis targets arithmetic
+preservation across operations.
+
+**Metering.lean**: usage event aggregation via foldl (`aggregate` over sum,
+count, min, max, latest; `dedup` via list membership check). The sum aggregation
+case (`(evts.map Event.value).foldl (· + ·) 0`) is structurally similar to
+LedgerFold's fold pattern. However, the domain is different: LedgerFold models
+append-only ledgers with *deltas* (partial account movements) that reveal bugs
+when a stale seed is read without folding the deltas; Metering models parsing
+and aggregating event *values* from a list, and its real bugs are dedup gaps
+(missing `RawEvent::key()` dedup in ingest, delegated to async ClickHouse merge).
+These are not the same bug shapes. Retrofitting onto LedgerFold would not improve
+the dedup-gap proofs already present. Audit result: **leave alone**. One sentence:
+event aggregation has different domain and bug patterns than append-only ledger
+folding; structurally-similar foldl doesn't mean genuine conceptual fit.
+
 ## Coverage so far
 
 In order of finding: `Metering` dedup (no-op guard), `TierPricing` block_size

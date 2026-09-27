@@ -1094,6 +1094,30 @@ these into a `LedgerFold` or `IntervalBasis` shape would require contriving a
 (e.g. falsely claiming an inequality is "really" a clamped value). Honest audit
 means leaving all five as is.
 
+## Basis-module audit: ComponentMatching, CouponThreshold, SlotBounds, TierPricing
+
+Concurrent parallel audit (2026-09-27) of a separate set of four files against
+the same two basis modules (`LedgerFold.lean`, `IntervalBasis.lean`):
+
+- **`ComponentMatching.lean`**: Does NOT fit. Models list-search logic (`.find()`
+  on a non-unique key), not ledger folding or bounded-quantity composition.
+- **`CouponThreshold.lean`**: Does NOT fit. Models control-flow ordering (check
+  before apply in a loop), not ledger folding or bounded-quantity composition.
+- **`SlotBounds.lean`**: Does NOT fit `IntervalBasis`, despite surface-level
+  interval-membership checking. The file checks if a value lives in `[min, max]`
+  but does not compose bounded operations (clamp/max/min/add). `IntervalBasis`
+  is about composing such operations to prove results stay bounded; SlotBounds
+  is a simple range check, a different pattern. Not retrofitted.
+- **`TierPricing.lean`**: Does NOT fit. Models tier-based pricing logic (which
+  tier a usage level falls into), not ledger folding or bounded-quantity
+  composition.
+
+**Conclusion:** None fit either basis. This is expected — the instructions
+acknowledge "most won't" and cite TierPricing as a likely non-fit. The basis
+modules capture genuinely recurring patterns; not every file on the audit list
+is an instance of either pattern. No retrofit attempted; all four files left
+unmodified.
+
 ## Coverage so far
 
 In order of finding: `Metering` dedup (no-op guard), `TierPricing` block_size

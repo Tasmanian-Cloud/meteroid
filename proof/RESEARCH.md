@@ -5,6 +5,11 @@ Working directly inside the vendored `meteroid` fork (per Clay's direction
 package (`proof/`) and its Rust companion crates
 (`crates/meteroid-{pure,proof}-core`) live alongside the code they model.
 
+**`BUGS.md` is the index of every confirmed defect found here** (file, severity,
+proof reference, and confirmation that every one is a bug in upstream
+`meteroid-oss` itself, not something this fork introduced) — read that first if
+you want the punch list rather than the narrative log.
+
 ## The basis pivot: `LedgerFold.lean`, actually reusing `Song.Foundation`
 
 `proof/lakefile.lean`'s own comment always said the point of `require song`

@@ -1710,3 +1710,89 @@ This holds captured money for manual review on any mismatch. Reconciliation has 
 
 No staleness bugs found in the hosted-payment sweep (data is re-fetched fresh). No state-transition gaps found in setup flows (all enum variants are handled). Manual payment recording is correctly defended. The one real bug is the reconciliation flow's failure to validate amount matching, which is already documented in Bug #22.
 
+## Credits subsystem audit: pending balance transaction lifecycle gap (Bug #23)
+
+`modules/meteroid/crates/meteroid-store/src/services/credits/mod.rs` implements
+customer credit purchases (`buy_customer_credits`). Audit traced the full
+lifecycle: purchase → invoice → payment → balance credit.
+
+**Finding: purchased credits are never applied to customer balance. A real,
+blocking bug with direct financial impact — customers pay for credits they
+cannot use.**
+
+### The broken flow
+
+1. **Purchase initiation** (`buy_customer_credits`, line 16-104):
+   - Creates an invoice for the requested amount (e.g., $50)
+   - Inserts a `CustomerBalancePendingTxRowNew` into `customer_balance_pending_tx`
+     table with the purchase amount (lines 80-93)
+   - Returns the draft invoice
+
+2. **Expected completion path (does not exist)**:
+   - When the invoice is paid/finalized, the pending transaction should be
+     converted to a settled transaction via `CustomerBalance::update`
+   - This would increase `customers.balance_value_cents`
+   - Then the pending transaction's `tx_id` field should be updated to link it
+     to the settled transaction
+
+3. **Actual state of the code**:
+   - `repositories/invoices.rs` contains an async fn `_process_pending_tx`
+     (lines 1042-1063) that implements exactly this conversion:
+     ```rust
+     async fn _process_pending_tx(conn: &mut PgConn, invoice_id: InvoiceId) -> StoreResult<()> {
+         let pending_tx = CustomerBalancePendingTxRow::find_unprocessed_by_invoice_id(conn, invoice_id).await?;
+         if let Some(pending_tx) = pending_tx {
+             let tx_id = CustomerBalance::update(...).await?.tx_id;
+             CustomerBalancePendingTxRow::update_tx_id(conn, pending_tx.id, tx_id).await?;
+         }
+         Ok(())
+     }
+     ```
+   - This function is marked `// TODO unused (was in update_invoice_external_status)`
+   - **It is never called anywhere in the codebase** (verified by grep: only
+     definition exists, zero call sites)
+
+4. **Observable consequence**:
+   - Pending transactions accumulate in the database indefinitely
+   - The customer's `balance_value_cents` is never increased
+   - Applied-credits calculation (`applied_credits` in invoice content
+     computation) uses the stale balance column, which was never updated
+   - Customer cannot use purchased credits
+
+### Interaction with related code
+
+The credits subsystem is isolated from the already-audited credit-note pipeline
+(bugs #6, #17, #21). Credit notes operate on `credited_amount_cents` and
+`refunded_amount_cents` fields, which are separate concerns — they represent
+retroactive adjustments to existing invoices, not the accumulation of purchased
+balance. No overlap found between the two credit mechanisms.
+
+### Code audit notes
+
+- `buy_customer_credits` is not a draft/intent pathway — it directly creates an
+  invoice (via `create_oneoff_draft_invoice`) and expects the payment flow to
+  settle the pending transaction. No other caller in the codebase creates
+  `CustomerBalancePendingTx` rows (confirmed by grep: only credits/mod.rs and
+  the dead `_process_pending_tx` function touch it).
+- The invoice created is a `OneOff` type, inserted into the finalization
+  pipeline at normal weight (no special handling found).
+- No API endpoint, webhook handler, or background job processes pending
+  transactions. The `_process_pending_tx` function existence and name suggest
+  this was intended to be called from `update_invoice_external_status`, but
+  that code path no longer exists (or never existed in this upstream version).
+
+### Where this surfaces in a customer workflow
+
+1. Customer purchases $100 in credits via API/UI
+2. Invoice `INV-001` is created for $100
+3. Customer pays the invoice (status becomes `Paid`)
+4. A pending transaction row is inserted, awaiting settlement
+5. **Bug:** No settlement happens. The pending transaction row stays in
+   `pending_tx` state forever.
+6. Customer's balance_value_cents remains 0
+7. When any invoice is drafted, `applied_credits` is calculated as
+   `min(total, 0)` = 0 — customer cannot apply their purchased credits to
+   any invoice
+8. Customer is charged in full for invoices they've already paid for via
+   credit purchase.
+

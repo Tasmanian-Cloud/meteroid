@@ -13,6 +13,7 @@ pub mod invoice_amount_due;
 pub mod metering_agg;
 pub mod mrr_slot_staleness;
 pub mod payment_reversal;
+pub mod pending_balance_transaction_idle;
 pub mod proration;
 pub mod quote_expiry;
 pub mod reconciliation_amount_gap;

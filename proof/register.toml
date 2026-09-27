@@ -750,3 +750,59 @@ status_reason = "reconciliation_amount_gap.rs tests pass (3/3). Lean file writte
 controls = ["partial_payment_accepted_without_validation (Rust)", "overpayment_also_accepted_without_validation (Rust)", "contrast_with_hosted_setup_validates (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "pending_tx_initial_state"
+module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
+file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
+lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
+lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
+algebra = "State immediately after buy_customer_credits creates a pending tx: (tx_id, balance_cents). Returns (1, 0) — pending tx exists but balance unchanged."
+encoding = "Nat"
+status = "Lean (native)"
+status_reason = "lean 4.30.0-rc2 green, 2026-09-28. Models the initial state after a customer credit purchase: a pending transaction is inserted (id=1, amount=customer_input), but customer_balance_cents remains zero because _process_pending_tx is marked TODO unused and never called."
+controls = ["pending_tx_never_settled (Lean)", "pending_tx_initial_state (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "stale_balance_on_invoice_draft"
+module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
+file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
+lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
+lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
+algebra = "applied_credits calculation reads customer.balance_value_cents, which was never updated. Always returns 0 regardless of pending_tx_amount."
+encoding = "Nat"
+status = "Lean (native)"
+status_reason = "lean 4.30.0-rc2 green, 2026-09-28. When an invoice is drafted (compute_oneoff_invoice), applied_credits = min(total, balance). Since balance was never updated from the pending tx, applied_credits always uses a stale zero, preventing credit application."
+controls = ["stale_balance_on_invoice_draft (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "bug_scenario_100_credit_purchase"
+module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
+file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
+lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
+lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
+algebra = "Concrete witness: customer purchases $100 in credits. Returns (amount_paid=100, pending_amount=100, customer_balance_after=0)."
+encoding = "Nat"
+status = "Lean (native)"
+status_reason = "lean 4.30.0-rc2 green, 2026-09-28. concrete_bug_scenario theorem in Lean proof. The customer pays $100, pending tx of $100 is created, but balance stays zero — the bug in action. Used as the foundation for all three state-machine proofs in this module."
+controls = ["concrete_bug_scenario_100_usd (Rust)", "settlement_would_fix_it (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "if_settlement_were_called"
+module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
+file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
+lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
+lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
+algebra = "The settlement operation (if called): balance_cents += pending_amount_cents. Demonstrates that the fix is straightforward."
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lean 4.30.0-rc2 green, 2026-09-28. settlement_would_fix_it theorem. Models the _process_pending_tx operation from repositories/invoices.rs (currently unused). Shows that if settlement were called, the balance would be correctly increased."
+controls = ["settlement_would_fix_it (Rust)", "proof_of_the_gap (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

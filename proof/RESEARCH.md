@@ -391,11 +391,21 @@ against `discount.rs`'s own `test_simple_distribution`/
 `test_remainder_distribution` plus authored skewed-subtotal vectors
 (`vectors/discount.json`).
 
-**Not yet investigated** (real scope, not silently dropped):
-`calculate_coupons_discount` (`discount.rs:65-135`, percentage-then-fixed
-precedence — `Decimal`-typed throughout, so it would face the same modeling
-limits as the tax rate work, not the clean-integer target
-`distribute_discount` was).
+## `calculate_coupons_discount`: the early-break threshold fires one subunit too early
+
+Re-reading `calculate_coupons_discount` (`discount.rs:65-135`) to confirm it
+was out of scope (`Decimal`-typed, same ceiling as tax rates) surfaced a
+separate, narrower, fully-integer bug worth formalizing on its own: the
+loop's `if subtotal_subunits <= Decimal::ONE { break; }` (`:90-92`) runs
+**before** computing and applying that iteration's discount. A subtotal of
+exactly `1` subunit breaks out before considering ANY further coupon,
+including a "100% off, no exceptions" one — the customer pays the full cent
+despite holding a coupon that should zero it out. `CouponThreshold.lean`'s
+`subtotal_one_never_discounted` proves this concretely, contrasted with
+`subtotal_two_fully_discounted` (the identical coupon applies normally at 2
+subunits) to pin the bug to exactly this boundary, not a general
+near-zero failure. Models only the break-then-apply ordering, not the
+surrounding `Decimal` percentage/fixed-amount computation.
 
 ## `recompute_amount_due_from_settled_payments`: monotone and exact
 

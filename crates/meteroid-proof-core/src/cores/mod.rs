@@ -1,4 +1,5 @@
 pub mod component_matching;
+pub mod coupon_threshold;
 pub mod discount;
 pub mod invoice_amount_due;
 pub mod metering_agg;

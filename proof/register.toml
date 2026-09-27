@@ -31,6 +31,20 @@ proof_repo_commit = ""
 artifact_sha256 = ""
 
 [[core]]
+function = "process_one_coupon"
+module = "meteroid-proof-core::cores::coupon_threshold"
+file = "crates/meteroid-proof-core/src/cores/coupon_threshold.rs"
+lean_module = "MeteroidVerify.CouponThreshold"
+lean_file = "proof/MeteroidVerify/CouponThreshold.lean"
+algebra = "verbatim ordering (discount.rs:89-116): break BEFORE applying if remaining<=1, else remaining-discount"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. subtotal_one_never_discounted proves a 100%-off coupon on a 1-subunit subtotal never applies (real bug: check-before-apply at threshold 1, not 0). subtotal_two_fully_discounted contrasts the identical coupon at 2 subunits applying normally, pinning the bug to exactly this boundary. Does not model the surrounding Decimal percentage/fixed-amount computation (discount.rs:94-114), same modeling ceiling as the tax rate work."
+controls = ["subtotal_one_never_discounted", "subtotal_two_fully_discounted"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
 function = "new_slot_count"
 module = "meteroid-proof-core::cores::slot_bounds"
 file = "crates/meteroid-proof-core/src/cores/slot_bounds.rs"

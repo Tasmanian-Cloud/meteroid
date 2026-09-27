@@ -1108,7 +1108,7 @@ invoice), `EntitlementGracePeriod` (documented never implemented),
 `PaymentReversal` (clamped, correct), `InvoiceNumbering` (locked, correct),
 `SlotBounds` (check correct, one path skips it), `ComponentMatching`
 (double-match via product_id non-uniqueness), `CheckoutSessionExpiry` (boundary
-off-by-one), `QuoteExpiry` (missing expiry validation), `ScaleFeeDisplayAsymmetry` (OneTime display only).
+off-by-one), `QuoteExpiry` (missing expiry validation), `ScaleFeeDisplayAsymmetry` (OneTime display only), `InvoiceVoidCancellation` (status guards correct), `NetTermsDueDate` (arithmetic correct, not used for dunning).
 
 ## Historical-rate caching: 5-minute staleness window, cache invalidation never called
 
@@ -1157,3 +1157,60 @@ Scouted `meteroid-tax/src/shared.rs` (tax rate resolution by jurisdiction and ex
 **Edge case: duplicate rules with equal specificity:** When two rules have the SAME specificity (e.g., two region-specific rules for country=US, region=CA), sort is stable so original order is preserved, and code takes `.first()`. This is deterministic but undocumented tie-breaking behavior. Checked: no bugs observed in this path (takes first match consistently); noted as a design choice rather than a bug.
 
 **No bugs found in tax jurisdiction/rate resolution logic.** All checks traced end-to-end; precedence ladder enforced correctly; destination-address matching is correct (rules with explicit region only match destinations with that region); customer-wide exemption correctly outranks line-level overrides per design; engine-rate fallback reachable only if no override applies.
+
+## Invoice void/cancellation: status transitions correctly guarded
+
+Scouted `services/invoices/repositories.rs`'s `void_invoice` (`:497-614`) to
+check invoice voiding logic. The function enforces five real guards:
+
+1. **Not a consolidated child** (`ensure_not_consolidated_child("void")`): child
+   invoices merged into a consolidated parent cannot be voided independently.
+2. **Must be Finalized** (line 518): Draft/Void/Uncollectible invoices reject.
+3. **Must not be Paid or PartiallyPaid** (lines 524-532): unpaid-only vouching,
+   matching the docstring ("Paid or partially paid invoices cannot be voided").
+4. **Consolidated parent members not awaiting activation** (lines 539-564):
+   if this is a parent, any TrialExpired or PendingCharge members would be
+   stranded (their FinalizeInvoice event already no-op'd for children), so the
+   void is rejected.
+5. **Database-level filter** (`query.filter(status = Finalized)`, diesel-models
+   query/invoices.rs:840): an extra idempotency layer — double-void attempts
+   silently match zero rows but don't error.
+
+Voiding creates a full-amount `CreditToBalance` credit note (line 567-582),
+reversing the amount through the applied-credits mechanism (already proved
+correct in `RefundInvariant.lean`).
+
+Payment application logic (`process_payment.rs:61-66`) correctly rejects
+non-Draft/Finalized invoices, so voided invoices cannot be charged afterward.
+
+**Found correct; no state-transition bugs detected.**
+
+## Net-terms/due-date arithmetic: consistent and correct across four call sites
+
+All four invoice-creation paths (`draft.rs:149`, `:238`, `:388`, `:630`, plus
+`consolidate.rs:245`) use the identical formula:
+```rust
+let due_date = (invoice_date + chrono::Duration::days(i64::from(subscription.net_terms)))
+    .and_time(NaiveTime::MIN);
+```
+
+`invoice_date` is a `NaiveDate` (confirmed: parameter type `invoice_date: NaiveDate`
+at draft.rs line 41). The formula adds `net_terms` complete days and sets time to
+00:00:00.
+
+**Semantic correctness of 0-day net-terms:** `0 + Duration::days(0) =` same date
+at midnight (due immediately, same day as issue). This matches the intent (invoice
+issued today, net terms = 0 → due today at start of day). No off-by-one.
+
+**Unused in dunning logic:** Field is calculated consistently across all sites
+but is **never read for payment-overdue determination**. It is read only for
+display (PDF, accounting exports, domain mapping) — `service/orchestration/
+invoice_accounting_pdf_generated.rs:73`, `invoice_paid.rs:91` convert to date
+for display, not for payment-due comparisons. No dunning, late-fee, or
+retry-ladder logic consults `due_at`. Noted as a potential future extension
+(module comment in invoices.rs:184 flags `// TODO due_date`, suggesting a
+planned rename), but not a current bug.
+
+**Found correct; arithmetic is consistent, semantics match intent, no usage gaps
+detected.** Observation: the field is infrastructure-ready but not yet wired to
+live payment-overdue logic — a design limitation, not a bug.

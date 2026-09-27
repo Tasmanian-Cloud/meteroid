@@ -1,3 +1,5 @@
+import MeteroidVerify.IntervalBasis
+
 /-!
 # meteroid / PaymentReversal — `amount_refunded`'s clamp, closed for all four write paths
 
@@ -31,6 +33,20 @@ Not modeled: the redelivery/staleness guards around each branch
 (`refunded_at` timestamp comparisons) — those decide WHETHER a write
 happens, not what value it produces if it does; irrelevant to the clamp.
 
+**Now built on `IntervalBasis.lean`** (the second basis module, after
+`LedgerFold.lean`). `cumulativeRefund` and `reinstateRefund` are exactly
+Rust's `.clamp()` calls composed with `.max()`/subtraction — rewritten
+here to use `clampInterval` directly (matching the real Rust `.clamp()`
+call even more literally than the raw `max`/`min` expansion did) and
+proved by composing `clampInterval_mem`/`max_mem`/`sub_from_mem`, not a
+fresh `omega` search each. `fullRefund` and `incrementalRefund` are left
+as direct `omega` proofs — the basis genuinely doesn't have a clean
+combinator for `incrementalRefund`'s shape yet (a sum of two
+semi-bounded quantities clamped only from above, not both sides), and
+`fullRefund` is trivial identity with nothing to compose. Not forcing a
+fit where the basis doesn't naturally have one is itself part of being
+honest about what the basis actually covers.
+
 Pure Lean core: no Mathlib, no Batteries, no `sorry`/`admit`/`axiom`/
 `native_decide`.
 -/
@@ -39,7 +55,7 @@ namespace MeteroidVerify
 
 /-- `total.clamp(0, amount).max(amount_refunded)` (`:346-347`). -/
 def cumulativeRefund (amount amountRefunded total : Int) : Int :=
-  max (max 0 (min total amount)) amountRefunded
+  max (clampInterval 0 amount total) amountRefunded
 
 /-- `amount` verbatim (`:372`). -/
 def fullRefund (amount : Int) : Int := amount
@@ -50,7 +66,7 @@ def incrementalRefund (amount amountRefunded delta : Int) : Int :=
 
 /-- `amount_refunded - reinstated_amount.clamp(0, amount_refunded)` (`:505-511`). -/
 def reinstateRefund (amountRefunded reinstatedAmount : Int) : Int :=
-  amountRefunded - max 0 (min reinstatedAmount amountRefunded)
+  amountRefunded - clampInterval 0 amountRefunded reinstatedAmount
 
 /-- `Cumulative`: given the invariant held before, it holds after. The
     `.max(amountRefunded)` term is exactly why `amountRefunded ≤ amount`
@@ -63,7 +79,7 @@ theorem cumulativeRefund_clamped (amount amountRefunded total : Int)
     0 ≤ cumulativeRefund amount amountRefunded total ∧
       cumulativeRefund amount amountRefunded total ≤ amount := by
   unfold cumulativeRefund
-  omega
+  exact max_mem (clampInterval_mem 0 amount total hamt) ⟨hlo, hhi⟩
 
 theorem fullRefund_clamped (amount : Int) (hamt : 0 ≤ amount) :
     0 ≤ fullRefund amount ∧ fullRefund amount ≤ amount := by
@@ -85,6 +101,6 @@ theorem reinstateRefund_clamped (amountRefunded reinstatedAmount : Int)
     0 ≤ reinstateRefund amountRefunded reinstatedAmount ∧
       reinstateRefund amountRefunded reinstatedAmount ≤ amountRefunded := by
   unfold reinstateRefund
-  omega
+  exact sub_from_mem (clampInterval_mem 0 amountRefunded reinstatedAmount hlo)
 
 end MeteroidVerify

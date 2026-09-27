@@ -297,6 +297,12 @@ controls = ["matches_meteroid_tax_test_rounding_behavior", "midpoint_rounds_away
 # against `song` and that the domain files citing it (MrrSlotStaleness.lean) still build
 # and still prove the same concrete numbers through it.
 
+# IntervalBasis.lean (clampInterval/clampInterval_mem/add_mem/max_mem/min_mem/sub_from_mem) has
+# no [[core]] row here either, same reason: it is the shared bounded-quantity basis
+# PaymentReversal.lean's cumulativeRefund_clamped/reinstateRefund_clamped now compose instead of
+# each running its own omega search, not a standalone #[pure_core] function. Its verification is
+# that it builds and that the domain proofs composing it still prove the same theorems.
+
 [[core]]
 function = "debt_cancellation_allowed"
 module = "meteroid-proof-core::cores::credit_note_race"
@@ -348,7 +354,7 @@ lean_file = "proof/MeteroidVerify/PaymentReversal.lean"
 algebra = "verbatim (payment_transactions.rs:346-347): total.clamp(0,amount).max(amount_refunded)"
 encoding = "Int"
 status = "Lean (native)"
-status_reason = "lake build green, 2026-09-27. Closes RefundInvariant.lean's previously-ASSUMED clamp: cumulativeRefund_clamped proves 0<=result<=amount given the inductive hypothesis 0<=amount_refunded<=amount holds on entry -- the .max(amount_refunded) term is exactly why this needs the hypothesis rather than following from total/amount alone."
+status_reason = "lake build green, 2026-09-27. Closes RefundInvariant.lean's previously-ASSUMED clamp: cumulativeRefund_clamped proves 0<=result<=amount given the inductive hypothesis 0<=amount_refunded<=amount holds on entry -- the .max(amount_refunded) term is exactly why this needs the hypothesis rather than following from total/amount alone. Retrofitted onto IntervalBasis.lean (2026-09-27): now defined as max (clampInterval 0 amount total) amountRefunded and proved by composing clampInterval_mem + max_mem, not a standalone omega search."
 controls = ["cumulativeRefund_clamped", "all_four_paths_stay_within_amount (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
@@ -390,7 +396,7 @@ lean_file = "proof/MeteroidVerify/PaymentReversal.lean"
 algebra = "verbatim (payment_transactions.rs:505-511): amount_refunded - reinstated_amount.clamp(0, amount_refunded)"
 encoding = "Int"
 status = "Lean (native)"
-status_reason = "lake build green, 2026-09-27. reinstateRefund_clamped: 0<=result<=amount_refunded (a fortiori <=amount, the only path that ever decreases amount_refunded) given 0<=amount_refunded, with no dependency on amount's value at all."
+status_reason = "lake build green, 2026-09-27. reinstateRefund_clamped: 0<=result<=amount_refunded (a fortiori <=amount, the only path that ever decreases amount_refunded) given 0<=amount_refunded, with no dependency on amount's value at all. Retrofitted onto IntervalBasis.lean (2026-09-27): now defined as amountRefunded - clampInterval 0 amountRefunded reinstatedAmount and proved by composing clampInterval_mem + sub_from_mem."
 controls = ["reinstateRefund_clamped", "all_four_paths_stay_within_amount (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""

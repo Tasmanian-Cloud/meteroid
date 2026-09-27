@@ -506,7 +506,44 @@ Lean: the discharging fact is a cross-function state invariant
 ("credit notes require Finalized"), not decidable arithmetic — recorded
 here rather than forced into a theorem it doesn't fit.
 
-The lock genuinely serializes concurrent `create_credit_note_tx` calls
+## `TaxRounding.lean`'s rounding rule is the codebase's canonical money-rounding primitive
+
+Scouting `fees.rs`'s `compute_usage_price` (`:218-253`, covers `PerUnit`,
+`Package`, `Tiered`, `Volume` — `Package`'s `block_size` genuinely IS
+honored here via `ceil(usage_units / block_size)`, a different, correctly-
+implemented feature from the per-tier `block_size` bug already formalized
+in `TierPricing.lean`) surfaced its final step: every branch's `Decimal`
+result is converted to a subunit integer via
+`ToSubunit::to_subunit_opt(precision)` (`common-utils/src/decimals.rs:9-14`),
+which does `Decimal * 10^precision` then
+`round_dp_with_strategy(0, MidpointAwayFromZero)` — **exactly** the rounding
+strategy `TaxRounding.lean`'s `round_half_away_from_zero` already models
+and proves. Grepping the whole codebase for `to_subunit_opt` finds ~30 call
+sites: `fees.rs`, `proration.rs`, `discount.rs`, `credit_notes.rs`,
+`slots.rs`, `component.rs`, `amendment.rs`, checkout, manual payments — this
+one trait method is the single, universal money-to-subunit conversion, not
+a tax-specific detail.
+
+Because `rust_decimal::Decimal` is exact fixed-point (mantissa + scale, no
+binary floating-point approximation — unlike the `f64` proration pipeline
+`FloatError.lean` bounds), `to_subunit_opt` on an already-exact,
+non-negative `Decimal` is losslessly `round_half_away_from_zero(mantissa *
+10^precision, 10^scale)`. Added `matches_real_to_subunit_opt` to
+`tax_rounding.rs`'s test module: it calls the REAL
+`common_utils::decimals::ToSubunit::to_subunit_opt` directly (added as a
+dev-dependency, `common-utils` + `rust_decimal`, both already
+workspace-pinned) and cross-checks it against the proved
+`round_half_away_from_zero`, over `Decimal::new(mantissa, scale)`
+constructions — not a re-description of the real implementation, an actual
+call into it. This retroactively closes the rounding-correctness question
+for every one of those ~30 call sites simultaneously, for the case where
+their input `Decimal` is itself exact. It says nothing new about inputs
+that are NOT exact — the tax-rate `f64→Decimal` seam remains the separate,
+already-documented open gap this file's module doc has always flagged.
+
+## `applied_credits` vs `cancelled_sum`: closed, structurally disjoint (plus a bonus cross-file proof)
+
+The other open question from the credit-note scope: could `applied_credits`
 against the same invoice — but serialization only prevents dirty writes; it
 does nothing for a guard whose input was captured before the wait and never
 refreshed after it. Two concurrent `DebtCancellation` requests against the

@@ -277,8 +277,8 @@ lean_file = "proof/MeteroidVerify/TaxRounding.lean"
 algebra = "round-half-away-from-zero of an exact integer ratio: (2*numerator + denominator) / (2*denominator)"
 encoding = "Int — real code uses rust_decimal::Decimal (no Aeneas builtin) and an f64-sourced rate (Decimal::from_f64); Path B, models the ROUNDING STRATEGY exactly against an assumed-exact rate, not the f64-to-Decimal conversion itself (documented open gap, RESEARCH.md and this file's own module doc)."
 status = "Lean (native)"
-status_reason = "lake build green, 2026-09-27. Matches meteroid-tax/src/tests.rs's own hand-verified test_rounding_behavior cases (999x0.21->210, 997x0.21->209) by decide, plus a genuine-midpoint case (250.5->251) pinning MidpointAwayFromZero as distinct from banker's rounding."
-controls = ["matches_meteroid_tax_test_rounding_behavior", "midpoint_rounds_away_from_zero_not_to_even"]
+status_reason = "lake build green, 2026-09-27. Matches meteroid-tax/src/tests.rs's own hand-verified test_rounding_behavior cases (999x0.21->210, 997x0.21->209) by decide, plus a genuine-midpoint case (250.5->251) pinning MidpointAwayFromZero as distinct from banker's rounding. Extended 2026-09-27: this is also the codebase's single canonical money-to-subunit rule (common-utils/src/decimals.rs:9-14's ToSubunit::to_subunit_opt, ~30 call sites across fees/proration/discount/credit_notes/slots/component/amendment/checkout/payment). matches_real_to_subunit_opt cross-checks this Lean-proved model directly against the real trait impl (mantissa/scale decomposition of an exact rust_decimal::Decimal), not a re-description of it -- for non-negative, exact Decimal inputs, ~30 pricing/proration/billing sites' final rounding step is this same proved function."
+controls = ["matches_meteroid_tax_test_rounding_behavior", "midpoint_rounds_away_from_zero_not_to_even", "matches_real_to_subunit_opt (Rust, cross-checks the real trait impl)"]
 
 # FloatError.lean (ulpFor/roundToP/roundToP_relative_bound/roundHalfAwayFromZero_bound,
 # and the 7 decide-checked pipeline examples) has no [[core]] row here: it is a

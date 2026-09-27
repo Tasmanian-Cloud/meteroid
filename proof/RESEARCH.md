@@ -1238,3 +1238,40 @@ planned rename), but not a current bug.
 **Found correct; arithmetic is consistent, semantics match intent, no usage gaps
 detected.** Observation: the field is infrastructure-ready but not yet wired to
 live payment-overdue logic — a design limitation, not a bug.
+
+## Webhook idempotency: scope scouted, found sound
+
+Scouted webhook event deduplication across the entire payment provider adapter
+layer (`api_rest/webhooks/router.rs`, `workers/pgmq/webhook_in.rs`,
+`diesel_models/src/query/webhooks.rs`, `domain/webhooks.rs`) and the
+related database schema.
+
+**Deduplication mechanism:** Event idempotency is achieved via:
+1. Event ID extraction from `json_body.get("id")` (`:119-123` in router.rs),
+   which extracts the provider's event identifier (e.g., Stripe `evt_...`) as
+   a nullable String.
+2. Persistence to `webhook_in_event` table with a unique index on
+   `(provider_config_id, event_id)` (migration 2026-06-28 comment explicitly
+   documents this).
+3. Database-level `INSERT ... ON CONFLICT (provider_config_id, event_id)
+   DO NOTHING` deduplication in `insert_dedup()` (`diesel_models/src/query/webhooks.rs:28-44`).
+
+**Correctness analysis:**
+- Event ID is extracted deterministically from the JSON body via serde's
+  `.as_str()` — JSON parsing normalizes string representation, so identical
+  webhook payloads always extract identical event IDs.
+- The unique constraint is enforced at the database level, preventing
+  race-condition TIMEMs (no TOCTOU window for the dedup check).
+- NULL handling (PostgreSQL's NULL-as-distinct semantics) is documented as
+  intentional in the migration: "NULLs are distinct in Postgres, so
+  providers/events without an id are unaffected" — permitting providers that
+  don't send an event ID to deliver multiple events without deduplication,
+  which is acceptable (a provider limitation, not a bug).
+
+**No bug found; no decidable formalization candidate.**
+The idempotency logic is sound. No arithmetic, clamp, or fold patterns to
+formalize. The mechanism is a straightforward I/O-level deduplication guard
+(event ID comparison + unique constraint) rather than a pure decidable fact.
+The scope itself (webhook I/O handling) is explicitly out of scope per
+the session charter ("... the rest ... (auth, UI, billing-webhook plumbing, ...)
+is out of scope").

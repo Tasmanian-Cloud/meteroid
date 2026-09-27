@@ -901,3 +901,50 @@ system clock granularity and scheduling precision) or whether the bug leads
 to a real compromise (requires the attacker to submit a checkout exactly at
 the microsecond of expiration). The bug is real and decidable; the exploit
 specificity is a deployment question, not a logical one.
+
+## `convert_quote_to_subscription`: quote expiry validation is never performed
+
+Scouted `services/quotes.rs` (quote-to-subscription conversion, scoped after all
+subscription/invoicing/metering findings) and found a real validation gap.
+`convert_quote_to_subscription` (`:21-61`) validates that a quote has
+`status == Accepted` (`:36`) and hasn't already been converted (`:44`), but makes
+NO check for `quote.expires_at` having passed.
+
+Compare to the coupon-expiry check elsewhere in the codebase
+(`services/subscriptions/utils.rs:378`):
+```rust
+if coupon.expires_at.is_some_and(|x| x <= now) {
+    return Err(...);
+}
+```
+
+A quote can be created with an `expires_at` timestamp, accepted before that
+timestamp passes, then converted to a subscription arbitrarily long after expiry
+— the real code applies zero validation. This violates expected semantics that
+an expired quote should not be usable. Especially problematic because:
+- Quotes are calculated at their creation time
+- Pricing may change after expiry
+- The subscription should use the current pricing if acceptance/conversion
+  occurs after expiry, not the stale quoted pricing
+
+**Further evidence this expiry should be enforced:** when `accept_quote`
+(`:488-570`) is called, it unconditionally sets `expires_at: None`
+(`repositories/quotes.rs:509`), suggesting the design intent was that
+expiry should be validated **before** acceptance — yet `accept_quote` itself
+never checks whether `expires_at` has already passed before clearing it.
+
+The bug exists at TWO points:
+1. `accept_quote` should reject if `quote.expires_at.is_some_and(|x| x <= now)`
+2. `convert_quote_to_subscription` should also check the same condition
+
+`QuoteExpiry.lean` models the real guard condition (`status == Accepted
+&& !converted`, ignoring expiry entirely) against the intended guard
+(`status == Accepted && !converted && !expired`). `expired_quote_conversion_bug`
+exhibits a concrete witness by `decide`: a quote with `status == Accepted`,
+`alreadyConverted == false`, `expired == true` is accepted by the real code
+but correctly rejected by the intended code.
+
+This is purely a control-flow missing-guard finding (not decidable arithmetic),
+similar to the credit-note race and slot-bounds unmasking (traced, not proved).
+Documented here in full rather than split across files since the bug is
+contained within one module and its immediate dependencies.

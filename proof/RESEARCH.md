@@ -1414,3 +1414,52 @@ formalize. The mechanism is a straightforward I/O-level deduplication guard
 The scope itself (webhook I/O handling) is explicitly out of scope per
 the session charter ("... the rest ... (auth, UI, billing-webhook plumbing, ...)
 is out of scope").
+
+## API mapping layer audit for dropped-field bugs (2026-09-27)
+
+Audited `modules/meteroid/src/api/*/mapping.rs` for fields that exist on
+domain types and/or proto messages but are hardcoded/None/Default in
+`_from_proto` (request-side) conversions instead of being read from the
+incoming request. Used grep pattern `"None,$\|Default::default()\|: false,$\|: 0,$"`
+as a starting point, then manually verified each hit against whether it was:
+
+1. A legitimate server-controlled field (ID, timestamp, computed value) — NOT a bug
+2. A field that doesn't exist in the proto at all — NOT a bug (correctly exposed)
+3. A field the client is meant to configure but the mapping discards — REAL BUG
+
+**Examined files** (20+ mapping.rs files across all API modules):
+- entitlements, subscriptions, invoices, prices, pricecomponents, coupons, quotes
+- customers, addons, invoicingentities, productitems, billablemetrics, connectors
+- deadletter, organizations, schedules, bankaccounts, stats, creditnotes, plans
+
+**Hardcoded values found and classified:**
+
+- `subscriptions/mapping.rs:198-199`: `backdate_invoices: false, skip_checkout_session: false`
+  — NOT in proto CreateSubscription, correctly server-controlled
+- `subscriptions/mapping.rs:179`: `billing_start_date: None` (with TODO comment)
+  — NOT in proto, server-computed from start_date + billing_day_anchor
+- `subscriptions/mapping.rs:605`: `downgrade_policy: 0, upgrade_policy: 0`
+  — in `_to_grpc` (outgoing response), not `_from_proto` (incoming request)
+- `invoices/mapping.rs:421`: `amount_refunded: 0`
+  — in test fixture, not a `_from_proto` conversion
+- `pricecomponents/mapping.rs:34-35`: `created_at: None, archived_at: None`
+  — in `domain_to_api` (outgoing), not incoming
+- `invoicingentities/mapping.rs:15-16`: `next_invoice_number: None, next_credit_note_number: None`
+  — in outgoing response
+- `quotes/mapping.rs:315`: `account_id: None` (for BankTransfer)
+  — NOT in proto BankTransfer message, correctly server-controlled
+
+**The only real dropped-field bug in this audit:**
+Bug #9 (`EntitlementGracePeriod.lean`), already documented in BUGS.md:
+- `grace_period_pct: None` hardcoded in `entitlement_value_from_proto` (`:195`)
+- `warning_threshold_pct: None` hardcoded (`:197`)
+- Both fields DO exist on the domain type (`OverageBehavior::Block`), documented
+  in domain/entitlements.rs as client-configurable
+- Neither field exists in the proto `MeteredValue` message yet (currently exposed
+  as None, making the bug dormant — no customer can configure them today)
+- Already fully formalized in `EntitlementGracePeriod.lean` + Rust companion
+
+**Conclusion:** The audit confirms the known bug #9 is the only instance of this
+pattern currently in the codebase. The search was broad (20+ files, 50+ hardcoded
+values checked) and systematic. No other instances of client-configurable fields
+being silently dropped in `_from_proto` conversions were found.

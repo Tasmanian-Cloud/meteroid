@@ -2,6 +2,9 @@
 debug/
 target/
 
+# Lean/Lake build output (proof/, proof-extract/)
+.lake/
+
 .cargo/*
 !.cargo/audit.toml
 

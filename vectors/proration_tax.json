@@ -1,0 +1,14 @@
+{
+  "_comment": "factor_cases: the aligned/misaligned asymmetry, cross-checked against proof/MeteroidVerify/Proration.lean's decide theorems. tax_cases: ported from meteroid-tax/src/tests.rs's test_rounding_behavior, cross-checked against proof/MeteroidVerify/TaxRounding.lean.",
+  "factor_cases": [
+    { "period": "monthly", "days_in_period": 30, "base_factor": 2, "expect": 2 },
+    { "period": "monthly", "days_in_period": 1000, "base_factor": 2, "expect": 1 },
+    { "period": "monthly", "days_in_period": 30, "base_factor": 0, "expect": 0 },
+    { "period": "annual", "days_in_period": 365, "base_factor": 1, "expect": 1 }
+  ],
+  "tax_cases": [
+    { "numerator": 20979, "denominator": 100, "expect": 210 },
+    { "numerator": 20937, "denominator": 100, "expect": 209 },
+    { "numerator": 25050, "denominator": 100, "expect": 251 }
+  ]
+}

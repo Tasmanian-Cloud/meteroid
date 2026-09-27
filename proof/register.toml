@@ -126,35 +126,10 @@ status = "Lean (native)"
 status_reason = "lake build green, 2026-09-27. Matches meteroid-tax/src/tests.rs's own hand-verified test_rounding_behavior cases (999x0.21->210, 997x0.21->209) by decide, plus a genuine-midpoint case (250.5->251) pinning MidpointAwayFromZero as distinct from banker's rounding."
 controls = ["matches_meteroid_tax_test_rounding_behavior", "midpoint_rounds_away_from_zero_not_to_even"]
 
-[[core]]
-function = "f64_factor_scaled_pipeline"
-module = "meteroid-proof-core::cores::proration"
-file = "crates/meteroid-proof-core/src/cores/proration.rs"
-lean_module = "MeteroidVerify.FloatError"
-lean_file = "proof/MeteroidVerify/FloatError.lean"
-algebra = "modeled f64 rounding pipeline: gridFactor (roundHalfAwayFromZero at gridScale=100) → roundToP f64Precision (53-bit significant-bit round) for both the division and the multiplication → roundHalfAwayFromZero back down to whole cents. The exact pipeline in proration.rs:165-169,186,212,243,295."
-encoding = "Int — modeled via roundU/roundToP from Song.Float3; pure Lean core (no Mathlib, no f64)."
-status = "Lean (native, partial — general theorems `roundToP_abs_bound` and `roundToP_relative_bound` carry `sorry` placeholders)"
-status_reason = "lake build green, 2026-09-27 (with 2 `sorry` placeholders pending the general ulpFor bound — the agent on the 'prove the general ulpFor bound and go fully symbolic' terminal is working this). The 7 `example`s that check the modeled pipeline against real `proration.rs` test vectors (`test_simple_upgrade_half_period`, `test_change_on_last_day`, `test_added_yearly_component_prorated_over_its_own_period`, `test_mixed_components_with_added_and_removed` × 4 amounts, and the `$10M / 227 of 365 days` sanity case) all prove via `decide`. The two `sorry` placeholders do not gate any of the 7 examples; they gate the general symbolic bound that would prove the WHOLE pipeline correct in one go, which is real follow-up work."
-controls = ["seven_decide_checked_examples_against_real_proration_vectors", "restoration_blocker_general_ulpFor_bound_proof"]
-proof_repo_commit = ""
-artifact_sha256 = ""
-
-# ── FUTURE-PATH (owed; not extracted into any artifact yet; Aeneas TFloat support is
-# the precondition — documented in `RESEARCH.md` as a "real structural failure"). This
-# row MUST NOT be read as a proof claim. When Aeneas gains TFloat, these functions
-# migrate from the song-style direct model to extraction-style proofs under a future
-# `proof-extract/` package. Until then, FloatError.lean's song-style model stands as the
-# artifact that PROVES the modeled pipeline concretely — but does not prove the real
-# `rust_decimal::Decimal` + `f64`-sourced rate path at `meteroid-tax/src/lib.rs:124-138`.
-[[future_core]]
-function = "round_half_away_from_zero_full_pipeline"
-module = "meteroid-tax"
-file = "crates/meteroid-tax/src/lib.rs"
-lean_module = "TBD (proof-extract/, Aeneas TFloat-dependent)"
-algebra = "the FULL Decimal-based pipeline including the f64 → rust_decimal::Decimal conversion at meteroid-tax/src/lib.rs:124-138 (Decimal::from_f64 on a pre-rounded f64); FloatError.lean's modeled f64 round is the easy half; the hard half is the lossy f64→Decimal conversion"
-encoding = "f64 + rust_decimal::Decimal (no Lean native; needs Aeneas TFloat)"
-status = "Aeneas — owed (precondition: TFloat support in aeneas, per `proof/RESEARCH.md`)"
-proofs = []
-controls = ["aeneas_TFloat_support_landing"]
-artifact_sha256 = "owed"
+# FloatError.lean (ulpFor/roundToP/roundToP_relative_bound/roundHalfAwayFromZero_bound,
+# and the 7 decide-checked pipeline examples) has no [[core]] row here: it is a
+# meta-level verification about the real f64 pipeline (via song's roundU, extended with
+# a genuine, fully symbolic Nat.log2-derived unit-roundoff bound — see RESEARCH.md), not
+# a #[pure_core] Rust re-implementation cross-checked by vectors like the rows above. It
+# doesn't fit this schema's "one row per #[pure_core] function" shape, so it isn't forced
+# into one; lake build (proof/) is its own verification record.

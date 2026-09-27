@@ -1,0 +1,8 @@
+[package]
+name = "meteroid-pure-core"
+version = "0.1.0"
+edition = "2021"
+description = "Inert #[pure_core] marker: an attribute whose absence is a register violation (proof/PROOF.md)."
+
+[lib]
+proc-macro = true

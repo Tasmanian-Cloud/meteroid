@@ -1,0 +1,12 @@
+{
+  "_comment": "Shared test vectors for metering aggregation semantics, consumed by both crates/meteroid-proof-core/src/cores/metering_agg.rs (cargo test) and proof/MeteroidVerify/Metering.lean (by hand, via #eval / decide over the same literals — no upstream meteroid tests exist for this module, so these are authored from scratch per proof/RESEARCH.md).",
+  "cases": [
+    { "kind": "sum", "events": [{"key": [1, 100], "value": 5}, {"key": [1, 101], "value": 7}], "expect": 12 },
+    { "kind": "sum", "events": [], "expect": 0 },
+    { "kind": "count", "events": [{"key": [1, 100], "value": 5}, {"key": [1, 101], "value": 7}], "expect": 2 },
+    { "kind": "min", "events": [{"key": [1, 100], "value": 5}, {"key": [1, 101], "value": -3}], "expect": -3 },
+    { "kind": "max", "events": [{"key": [1, 100], "value": 5}, {"key": [1, 101], "value": -3}], "expect": 5 },
+    { "kind": "latest", "events": [{"key": [1, 100], "value": 5}, {"key": [1, 101], "value": -3}], "expect": -3 },
+    { "kind": "sum", "events": [{"key": [1, 100], "value": 5}, {"key": [1, 100], "value": 5}], "expect": 10 }
+  ]
+}

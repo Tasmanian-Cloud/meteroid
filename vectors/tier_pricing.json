@@ -1,0 +1,10 @@
+{
+  "_comment": "Ported 1:1 from meteroid-store/src/services/invoice_lines/fees.rs's own tests (tiered_graduated_matches_line_total, tiered_applies_flat_fee_and_cap, volume_picks_tier_matches_line_total), plus one authored case proving block_size has no effect (fees.rs:32,123,166's TODO). Consumed by crates/meteroid-proof-core/src/cores/tier_pricing.rs's cargo test.",
+  "cases": [
+    { "model": "tiered", "usage_units": 150, "tiers": [{"first_unit":0,"rate_cents":100},{"first_unit":100,"rate_cents":50},{"first_unit":200,"rate_cents":25}], "block_size": null, "expect_cents": 12500 },
+    { "model": "tiered", "usage_units": 5, "tiers": [{"first_unit":0,"rate_cents":100,"flat_fee_cents":1000}], "block_size": null, "expect_cents": 1500 },
+    { "model": "tiered", "usage_units": 5, "tiers": [{"first_unit":0,"rate_cents":100,"flat_cap_cents":300}], "block_size": null, "expect_cents": 300 },
+    { "model": "volume", "usage_units": 150, "tiers": [{"first_unit":0,"rate_cents":100},{"first_unit":100,"rate_cents":50},{"first_unit":200,"rate_cents":25}], "block_size": null, "expect_cents": 7500 },
+    { "model": "tiered", "usage_units": 150, "tiers": [{"first_unit":0,"rate_cents":100},{"first_unit":100,"rate_cents":50}], "block_size": 20, "expect_cents": 12500 }
+  ]
+}

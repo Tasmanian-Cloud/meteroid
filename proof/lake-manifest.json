@@ -1,0 +1,13 @@
+{"version": "1.2.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"type": "path",
+   "scope": "",
+   "name": "song",
+   "manifestFile": "lake-manifest.json",
+   "inherited": false,
+   "dir": "../../song",
+   "configFile": "lakefile.lean"}],
+ "name": "meteroid_verify",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}

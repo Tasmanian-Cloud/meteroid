@@ -41,6 +41,10 @@ members = [
   "crates/secrecy",
   # vendored third-party (see crate LICENSE files)
   "crates/world-tax",
+  # verification (formal proof cores — companions to proof/, not linked into
+  # any meteroid service; see proof/RESEARCH.md)
+  "crates/meteroid-pure-core",
+  "crates/meteroid-proof-core",
   # extra
   "extra/generator",
 ]

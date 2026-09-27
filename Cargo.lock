@@ -5276,6 +5276,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "meteroid-proof-core"
+version = "0.1.0"
+dependencies = [
+ "meteroid-pure-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "meteroid-pure-core"
+version = "0.1.0"
+
+[[package]]
 name = "meteroid-seeder"
 version = "0.1.0"
 dependencies = [
@@ -11596,3 +11609,12 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
+
+[[patch.unused]]
+name = "sangdb"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "ruler"
+version = "0.1.0"
+source = "git+https://gitlab.tas.twn.network/twn/ptyktos/ruler.git?branch=main#bb42d5e698d03cdea5f91f9a2a3e308ed7cb1673"

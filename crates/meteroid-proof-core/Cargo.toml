@@ -1,0 +1,12 @@
+[package]
+name = "meteroid-proof-core"
+version = "0.1.0"
+edition = "2021"
+description = "Companion re-implementations for proof/ — pure decision functions (integers/enums only, no I/O, no floats) cross-checked against proof/MeteroidVerify/*.lean by shared vectors/*.json test vectors. Not linked into meteroid's own binaries; a verification-only crate."
+
+[dependencies]
+meteroid-pure-core = { path = "../meteroid-pure-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]

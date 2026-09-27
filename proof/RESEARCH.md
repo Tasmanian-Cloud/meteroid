@@ -948,3 +948,65 @@ This is purely a control-flow missing-guard finding (not decidable arithmetic),
 similar to the credit-note race and slot-bounds unmasking (traced, not proved).
 Documented here in full rather than split across files since the bug is
 contained within one module and its immediate dependencies.
+
+## `scale_fee`: add-on quantity scaling (traced, found correct arithmetic + one display asymmetry)
+
+`scale_fee` (`services/subscriptions/utils.rs:128-174`) is the canonical, single
+call site for baking add-on quantity into a fee's monetary fields. The function
+is used only in amendment.rs (`:1714,1796,1802,1836`) when building proration
+changes for immediate amendments.
+
+**Arithmetic correctness:** All fee variant arms are correct:
+- `Rate { rate }`: Scales `rate` by quantity → `rate * q`; used by
+  `component_advance_amount_cents`, which returns the scaled rate directly ✓
+- `Recurring { rate, quantity, ... }`: Scales `rate` by quantity → `rate * q`;
+  inner `quantity` unchanged; `component_advance_amount_cents` multiplies by
+  inner quantity, giving `(rate * q) * inner_qty = rate * inner_qty * q` ✓
+- `Capacity { rate, ... }`: Scales `rate` ✓
+- `Slot { unit_rate, initial_slots, ... }`: Scales `initial_slots`, leaving
+  `unit_rate` unchanged; `component_advance_amount_cents` multiplies them,
+  giving `(initial_slots * q) * unit_rate = initial_slots * unit_rate * q` ✓
+- `OneTime { rate, quantity }`: Scales inner `quantity` by add-on quantity →
+  `quantity * q`; `rate` unchanged; `component_onetime_amount_cents` multiplies
+  them ✓
+- Boundary: All arms clamp quantity with `.max(0)`, preventing negative
+  multipliers ✓
+
+**Display asymmetry in proration:** When a OneTime fee (already scaled by
+`scale_fee`) reaches `calculate_proration` (`:265-284`), it extracts the scaled
+fee's `quantity` field directly for display (`:275`). For other fee types
+(`:287-319`), display quantity comes from `AddedComponent::instance_quantity`
+(`:301-303`), NOT from the fee itself. Because `scale_fee` "folds the multiplier
+into ... rates, losing the count" (comment at `:63`), the OneTime case displays
+the TOTAL scaled quantity (inner_qty × add-on_qty) instead of the add-on
+instance count alone. This is a display bug, not arithmetic: the `amount_cents`
+is correct (both paths compute the right total), but the invoice line's
+`quantity` field shows `6` instead of `3` for an add-on with 3 instances and
+inner quantity 2. The docstring for `AddedComponent::instance_quantity` (`:103-107`)
+expects display to show "qty × unit_price" where qty is the instance count, not
+the total. `ScaleFeeDisplayAsymmetry.lean` formalizes this via the Rust test
+vectors.
+
+**Confirmed NOT customer-facing in amounts:** Invoice line generation
+(`invoice_lines/component.rs:79-104`) does NOT scale fees — it computes
+`instance_quantity()` separately for each add-on and multiplies by the
+per-unit fee. Proration display fields are annotated "for display ... The
+amount stays the line total" — so the asymmetry affects user-facing UI strings
+("3 × $20" vs "6 × $10") but not billing amounts. The actual charge is still
+correct: `(rate * inner_qty * instance_qty * factor).round()`.
+
+## Coverage so far
+
+In order of finding: `Metering` dedup (no-op guard), `TierPricing` block_size
+(non-dependence), `TierPricing` zero-tier subtraction underflow, `Proration`
+asymmetry + unclamped aligned branch, `TaxRounding` MidpointAwayFromZero
+(matched), `InvoiceAmountDue` monotone + exact, `DiscountConservation` (positive
+result), `CouponThreshold` early break one subunit too early, `RefundInvariant`
+(closed, positive result), `CreditNoteRace` (real defect: guard reads pre-lock
+snapshot), `DunningSchedule` (correct, pinned), `CurrencyConversion` 100x
+exponent bug, `MrrSlotStaleness` (internal metric staleness, not customer
+invoice), `EntitlementGracePeriod` (documented never implemented),
+`PaymentReversal` (clamped, correct), `InvoiceNumbering` (locked, correct),
+`SlotBounds` (check correct, one path skips it), `ComponentMatching`
+(double-match via product_id non-uniqueness), `CheckoutSessionExpiry` (boundary
+off-by-one), `QuoteExpiry` (missing expiry validation), `ScaleFeeDisplayAsymmetry` (OneTime display only).

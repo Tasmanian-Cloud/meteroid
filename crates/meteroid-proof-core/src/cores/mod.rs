@@ -13,6 +13,7 @@ pub mod payment_reversal;
 pub mod proration;
 pub mod quote_expiry;
 pub mod refund_invariant;
+pub mod scale_fee_display;
 pub mod slot_bounds;
 pub mod tax_rounding;
 pub mod tier_pricing;

@@ -497,3 +497,17 @@ status_reason = "lake build green, 2026-09-27. Reference implementation of what 
 controls = ["expired_quote_conversion_bug", "agrees_when_not_expired", "already_converted_quote_blocked_by_both"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "onetime_display_asymmetry"
+module = "meteroid-proof-core::cores::scale_fee_display"
+file = "crates/meteroid-proof-core/src/cores/scale_fee_display.rs"
+lean_module = "MeteroidVerify.ScaleFeeDisplayAsymmetry"
+lean_file = "proof/MeteroidVerify/ScaleFeeDisplayAsymmetry.lean"
+algebra = "amount_cents = rate * inner_qty * add_on_qty; display_qty_from_fee = inner_qty * add_on_qty (total); instance_qty = add_on_qty (instances only)"
+encoding = "Nat"
+status = "Lean (native)"
+status_reason = "2026-09-27. Display-only asymmetry: scale_fee(OneTime{rate, qty}, add_on_qty) bakes qty into the total (qty*add_on_qty), but proration.rs:275 extracts this total for display instead of using AddedComponent::instance_quantity (used by other types, lines 301-303). Amount is correct (rate*inner_qty*add_on_qty), but display shows 'total_qty × unit_rate' instead of 'instance_qty × per_instance_rate'. Arithmetic verified not customer-facing (invoice generation doesn't scale, amount_cents unchanged); display fields are 'for display' only per ProrationLineItem docstring."
+controls = ["test_amount_is_correct_despite_display_asymmetry", "test_display_shows_total_not_instances", "test_witness_3_instances_2_qty_10_rate (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

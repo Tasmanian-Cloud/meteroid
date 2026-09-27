@@ -1,6 +1,6 @@
-# Harness — Scout services/subscriptions/insert/process.rs for subscription creation bugs: initial period computation, trial-to-paid transition, initial invoice proration, slot/quantity init. Formalize any real bugs as Lean+Rust pairs, test, and push to formal-verification/meteroid-metering-pricing-proration.
+# Harness — reconcile 5th round of parallel formal-verification subagents for the meteroid-proof-core crate only (not the full meteroid workspace, which has unrelated unbuildable crates like common-grpc requiring protoc): backfill missing register.toml rows for pending_balance_transaction_idle and reconciliation_amount_gap cores, run 'cargo test -p meteroid-proof-core --quiet' to verify, run 'lake build' in proof/ to verify Lean, commit, push (non-force only), and clean up stale git worktrees already fully reconciled into main
 
-repo: . · phase: Planning
+repo: /home/ctown/projects/meteroid · phase: Planning
 
 status: **FRESH**
 

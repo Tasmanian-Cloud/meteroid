@@ -1,3 +1,4 @@
+pub mod activation_cycle_index_inconsistency;
 pub mod amendment_date_validation;
 pub mod checkout_preview_mismatch;
 pub mod checkout_session_expiry;
@@ -27,4 +28,3 @@ pub mod tax_rounding;
 pub mod termination_currency_conversion;
 pub mod tier_pricing;
 pub mod trial_end_before_effective_billing_start;
-pub mod vat_revalidation_cross_tenant;

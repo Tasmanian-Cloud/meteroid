@@ -1796,3 +1796,79 @@ balance. No overlap found between the two credit mechanisms.
 8. Customer is charged in full for invoices they've already paid for via
    credit purchase.
 
+## Subscription activation: two paths set `cycle_index` inconsistently for the same case
+
+Scouted `services/subscriptions/{cancel,activate,effective_plan,payment_resolution}.rs`
+— genuinely unexamined this session; `terminate.rs` (a different file) was already
+covered and is NOT the same code path as `cancel.rs`.
+
+**`cancel.rs`/`terminate.rs`**: traced directly — `cancel.rs` ultimately delegates to
+the same termination logic already covered; no independent proration/refund
+computation found there. **`effective_plan.rs`**: fetches fresh data from the
+database on every call, no staleness bug. **`payment_resolution.rs`**: consistent
+with the already-proven dunning retry ladder, no independent duplication found.
+
+**Real finding, independently confirmed:** `activate.rs` has two functions that
+activate a subscription — `activate_subscription_manual` (`:60-115`) and
+`activate_subscription_after_payment` (`:180-214`) — and they disagree on
+`cycle_index` for the identical "no-trial subscription becoming Active" case.
+
+Traced both directly:
+- `activate_subscription_manual`'s no-trial branch (`:79-99`, the `else` arm — the
+  ENTIRE conditional above it is flagged `// TODO check` in the real source, itself
+  a signal this logic was never fully reviewed) sets `cycle_index = Some(1)`.
+- `activate_subscription_after_payment` (`:203-210`) passes `Some(0)` to
+  `SubscriptionRow::activate_subscription` UNCONDITIONALLY — outside the trial/
+  no-trial `if`/`else` above it, so both branches of that function get `0`.
+
+Confirmed the "so what": `utils/periods.rs:49,68` — `cycle_index == 0` gates a
+DIFFERENT proration-factor/arrear-period computation than any other cycle index.
+So an identical no-trial subscription activated via the manual path skips that
+special-case computation (`cycle_index=1`); activated via the payment path, it
+takes it (`cycle_index=0`) — the same business event produces different first-cycle
+billing depending on which of the two functions handles it. The "two independent
+implementations of the same concept disagree" shape, confirmed by direct reading
+of both functions and the shared downstream gate they feed.
+
+Formalized as `ActivationCycleIndexInconsistency.lean`.
+
+## Diesel-models query layer: three files audited beyond what service-layer checks already covered
+
+`billing_events.rs` was read end-to-end (the subscription lifecycle event
+dispatcher): correct idempotency patterns and tenant scoping throughout, all MRR
+calculations properly scoped to `event.tenant_id`. No bugs found.
+
+`diesel-models/src/query/{customers,coupons,subscriptions,plans,bank_accounts}.rs`
+were audited beyond what service-layer call sites already exercise.
+`subscriptions.rs`, `plans.rs`, `bank_accounts.rs` are all properly tenant-scoped
+everywhere checked — no bugs found.
+
+**A checked, confirmed FALSE POSITIVE, not a bug — worth recording precisely
+because it looked like one at first.** `customers.rs::list_vat_revalidation_candidates`
+(`:71-97`) has no `tenant_id` filter in its WHERE clause. Read its own doc comment
+before concluding anything: `"... Oldest first, never-checked rows leading, ACROSS
+ALL TENANTS."` — the missing filter is EXPLICITLY DOCUMENTED, INTENTIONAL behavior
+for a background VIES-recheck sweep job, not a customer-facing query that should be
+tenant-scoped. Not formalized as a bug; no Lean/Rust artifact kept for this one — a
+"proof" that a system job scans all tenants would just be restating its own
+docstring, not a finding.
+
+**Two real, confirmed bugs**, both in `coupons.rs`, both a missing `tenant_id`
+filter on a mutation — but calibrated honestly on severity: `CouponId` is a
+UUID-based typed id, so exploiting either requires already knowing another
+tenant's exact coupon UUID; this is a genuine code-consistency defect and a
+missing defense-in-depth layer, not a directly/trivially exploitable
+enumeration attack.
+
+- `CouponStatusRowPatch::patch()` (`:295-309`) filters its UPDATE by `id` only.
+  Its sibling `CouponRowPatch::patch()` (`:276-291`), right above it in the same
+  file, correctly filters by BOTH `id` AND `tenant_id`. The struct even HAS a
+  `tenant_id: TenantId` field (`coupons.rs:59`) — declared, populated by every
+  caller, and simply never used in the query. The same "field exists, silently
+  unused" shape as bug #9 (`grace_period_pct`).
+- `inc_redemption_count()` (`:191-209`) doesn't even take a `tenant_id` parameter
+  — filters its UPDATE by `coupon_id` alone.
+
+Formalized as `CouponStatusMissingTenantFilter.lean` and
+`CouponRedemptionCountMissingTenantFilter.lean`.
+

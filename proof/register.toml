@@ -739,38 +739,6 @@ artifact_sha256 = ""
 
 [[core]]
 
-function = "list_vat_candidates_unfiltered"
-module = "meteroid-proof-core::cores::vat_revalidation_cross_tenant"
-file = "crates/meteroid-proof-core/src/cores/vat_revalidation_cross_tenant.rs"
-lean_module = "MeteroidVerify.VatRevalidationCrossTenant"
-lean_file = "proof/MeteroidVerify/VatRevalidationCrossTenant.lean"
-algebra = "the buggy query: filters by vat fields only, no tenant_id filter (customers.rs:82-94)"
-encoding = "Bool"
-status = "Lean (native)"
-status_reason = "lake build green, 2026-09-28. Bug #22: list_vat_revalidation_candidates explicitly documents 'across all tenants' but has no tenant_id filter in the WHERE clause. vat_cross_tenant_exposure proves a concrete witness (two customers from different tenants, both matching VAT criteria: unfiltered returns 2, tenant-scoped returns 1) by decide. HIGH severity: direct cross-tenant data exposure, confirmed reachable by any call to this method."
-controls = ["vat_cross_tenant_exposure", "vat_bug_is_real", "buggy_includes_other_tenants (Rust)"]
- 5d58c9fc (formal verify: three diesel-models query layer tenant-isolation bugs (22-24))
-proof_repo_commit = ""
-artifact_sha256 = ""
-
-[[core]]
-
-function = "list_vat_candidates_correct"
-module = "meteroid-proof-core::cores::vat_revalidation_cross_tenant"
-file = "crates/meteroid-proof-core/src/cores/vat_revalidation_cross_tenant.rs"
-lean_module = "MeteroidVerify.VatRevalidationCrossTenant"
-lean_file = "proof/MeteroidVerify/VatRevalidationCrossTenant.lean"
-algebra = "the correct query: filters by tenant_id AND vat fields (required fix)"
-encoding = "Bool"
-status = "Lean (native)"
-status_reason = "lake build green, 2026-09-28. Reference implementation demonstrating the gap in list_vat_candidates_unfiltered -- should be added to the WHERE clause of the actual SQL query in customers.rs:82-94."
-controls = ["vat_cross_tenant_exposure", "vat_bug_is_real", "correct_filters_by_tenant (Rust)"]
- 5d58c9fc (formal verify: three diesel-models query layer tenant-isolation bugs (22-24))
-proof_repo_commit = ""
-artifact_sha256 = ""
-
-[[core]]
-
 function = "update_coupon_status_buggy"
 module = "meteroid-proof-core::cores::coupon_status_missing_tenant_filter"
 file = "crates/meteroid-proof-core/src/cores/coupon_status_missing_tenant_filter.rs"
@@ -781,7 +749,6 @@ encoding = "Bool"
 status = "Lean (native)"
 status_reason = "lake build green, 2026-09-28. Bug #23: CouponStatusRowPatch::patch updates coupon status by id only, without tenant_id filter. This is inconsistent with CouponRowPatch::patch (lines 276-291) which correctly filters by both id AND tenant_id. coupon_status_missing_tenant_filter proves a concrete witness (two tenants with coupon id=1: buggy updates both, correct updates only the target tenant) by decide. MEDIUM severity: while coupon IDs are typically globally unique, this represents a missing guard pattern found elsewhere in the codebase, indicating a latent vulnerability in the update logic."
 controls = ["coupon_status_missing_tenant_filter", "coupon_status_guard_gap", "buggy_affects_wrong_tenant (Rust)"]
- 5d58c9fc (formal verify: three diesel-models query layer tenant-isolation bugs (22-24))
 proof_repo_commit = ""
 artifact_sha256 = ""
 
@@ -825,6 +792,117 @@ encoding = "Int"
 status = "Lean (native)"
 status_reason = "lake build green, 2026-09-28. Reference implementation demonstrating the correct tenant-scoped increment pattern -- should be added to the WHERE clause in coupons.rs:198-200."
 controls = ["inc_redemption_count_missing_tenant_filter", "redemption_count_unscoped_increment", "correct_increments_only_matching_tenant (Rust)"]
- 5d58c9fc (formal verify: three diesel-models query layer tenant-isolation bugs (22-24))
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "activation_manual_no_trial_cycle_index"
+module = "meteroid-proof-core::cores::activation_cycle_index_inconsistency"
+file = "crates/meteroid-proof-core/src/cores/activation_cycle_index_inconsistency.rs"
+lean_module = "MeteroidVerify.ActivationCycleIndexInconsistency"
+lean_file = "proof/MeteroidVerify/ActivationCycleIndexInconsistency.lean"
+algebra = "verbatim (activate.rs:79-99, the no-trial else arm): manual activation without trial sets cycle_index=1"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. CONFIRMED bug, independently re-verified against the real source (the submitting agent's own commit never reached the remote -- pushed as status=owed with a note the local harness gate blocked the build; extracted its files from the stuck worktree branch and rebuilt fresh here). activate_subscription_manual's no-trial branch (activate.rs:79-99 -- the entire surrounding conditional is flagged // TODO check in the real source) sets cycle_index=Some(1); activate_subscription_after_payment (:203-210) passes Some(0) unconditionally, outside its own trial/no-trial branching. Confirmed the downstream effect directly: utils/periods.rs:49,68 gate a different proration-factor/arrear-period computation exactly when cycle_index==0. paths_diverge_on_cycle_index_for_no_trial/paths_diverge_on_proration_gate/bug_impacts_first_billing_cycle_proration prove the divergence and its billing consequence by decide."
+controls = ["paths_diverge_on_cycle_index_for_no_trial", "paths_diverge_on_proration_gate", "bug_impacts_first_billing_cycle_proration", "activation_manual_no_trial_cycle_index (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "activation_payment_no_trial_cycle_index"
+module = "meteroid-proof-core::cores::activation_cycle_index_inconsistency"
+file = "crates/meteroid-proof-core/src/cores/activation_cycle_index_inconsistency.rs"
+lean_module = "MeteroidVerify.ActivationCycleIndexInconsistency"
+lean_file = "proof/MeteroidVerify/ActivationCycleIndexInconsistency.lean"
+algebra = "verbatim (activate.rs:203-210): payment activation (any type, including no trial) always sets cycle_index=0"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. The buggy/inconsistent side of the divergence proved alongside activation_manual_no_trial_cycle_index above."
+controls = ["paths_diverge_on_cycle_index_for_no_trial", "paths_diverge_on_proration_gate", "activation_payment_no_trial_cycle_index (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "cycle_index_zero_gates_proration"
+module = "meteroid-proof-core::cores::activation_cycle_index_inconsistency"
+file = "crates/meteroid-proof-core/src/cores/activation_cycle_index_inconsistency.rs"
+lean_module = "MeteroidVerify.ActivationCycleIndexInconsistency"
+lean_file = "proof/MeteroidVerify/ActivationCycleIndexInconsistency.lean"
+algebra = "verbatim (utils/periods.rs:49,68): cycle_index==0 gates the proration-factor/arrear-period computation"
+encoding = "Bool"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Confirms the divergence in cycle_index actually reaches different billing behavior, not just a cosmetic field difference."
+controls = ["paths_diverge_on_proration_gate", "cycle_index_zero_gates_proration (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "pending_tx_initial_state"
+module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
+file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
+lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
+lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
+algebra = "verbatim (services/credits/mod.rs:80-93): buy_customer_credits inserts a pending tx, balance stays zero"
+encoding = "(Int, Int) pair: (pending_tx_id, customer_balance_cents)"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Backfilling a register row the original submitting agent's commit omitted despite claiming a complete register; independently re-verified against services/credits/mod.rs and repositories/invoices.rs directly (bug #23)."
+controls = ["pending_tx_never_settled", "initial_balance_zero", "pending_tx_starts_with_zero_balance (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "stale_balance_on_invoice_draft"
+module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
+file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
+lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
+lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
+algebra = "verbatim: applied_credits = min(invoice_total, stale_balance) = min(invoice_total, 0) = 0 since balance was never updated"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Backfilling a register row the original submitting agent's commit omitted despite claiming a complete register (bug #23)."
+controls = ["settlement_unreachable", "stale_balance_prevents_credit_application (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "bug_scenario_100_credit_purchase"
+module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
+file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
+lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
+lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
+algebra = "concrete witness: customer pays $100, pending_tx records $100, balance stays $0"
+encoding = "(Int, Int, Int) triple: (amount_paid, pending_amount, customer_balance_after)"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Backfilling a register row the original submitting agent's commit omitted despite claiming a complete register (bug #23)."
+controls = ["concrete_bug_scenario", "concrete_bug_100_usd (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "if_settlement_were_called"
+module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
+file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
+lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
+lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
+algebra = "the never-called settlement codepath from repositories/invoices.rs::_process_pending_tx, modeled as initial_balance + pending_amount"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Backfilling a register row the original submitting agent's commit omitted despite claiming a complete register; models the counterfactual (what would happen if the dead call site were wired up) to make the gap concrete (bug #23)."
+controls = ["settlement_would_fix_it", "settlement_would_fix_it (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "reconciliation_accepts_any_amount"
+module = "meteroid-proof-core::cores::reconciliation_amount_gap"
+file = "crates/meteroid-proof-core/src/cores/reconciliation_amount_gap.rs"
+lean_module = "MeteroidVerify.ReconciliationAmountGap"
+lean_file = "proof/MeteroidVerify/ReconciliationAmountGap.lean"
+algebra = "verbatim (services/payment/reconcile.rs:168-282): consolidate_intent_and_transaction_tx never reads amount_received, settles on status alone"
+encoding = "(Int, Int, String) -> Bool: (requested, received, status) -> accepted"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Backfilling a register row the original submitting agent's commit omitted despite claiming a complete register; independently re-verified against reconcile.rs and payment_transactions.rs directly, and confirmed the contrasting hosted_setup.rs::resolve_captured_payment DOES validate (bug #22)."
+controls = ["partial_payment_accepted_without_validation", "concrete_partial_bug", "partial_payment_accepted_without_validation (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""

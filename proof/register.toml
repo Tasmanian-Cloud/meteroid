@@ -31,6 +31,20 @@ proof_repo_commit = ""
 artifact_sha256 = ""
 
 [[core]]
+function = "new_status"
+module = "meteroid-proof-core::cores::refund_invariant"
+file = "crates/meteroid-proof-core/src/cores/refund_invariant.rs"
+lean_module = "MeteroidVerify.RefundInvariant"
+lean_file = "proof/MeteroidVerify/RefundInvariant.lean"
+algebra = "verbatim (payment_transactions.rs:390-394): Refunded iff new_amount_refunded >= amount"
+encoding = "Int, 2-constructor enum"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Closes the open assumption InvoiceAmountDue.lean flagged (whether Refunded-status/amount_refunded consistency holds): newStatus_refunded_iff_exact proves that under the clamp every real reversal branch enforces (0<=new_amount_refunded<=amount, verified by reading payment_transactions.rs:329-394 directly), the >= check is exactly an = check, and refunded_transactions_net_to_zero connects this to InvoiceAmountDue.settledNet, proving a fully clawed-back transaction always nets to 0 -- this is a positive result, not a bug, closing a previously-open gap."
+controls = ["newStatus_refunded_iff_exact", "refunded_transactions_net_to_zero", "refunded_iff_exact_under_the_real_clamp (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
 function = "process_one_coupon"
 module = "meteroid-proof-core::cores::coupon_threshold"
 file = "crates/meteroid-proof-core/src/cores/coupon_threshold.rs"

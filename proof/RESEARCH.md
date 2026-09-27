@@ -407,6 +407,34 @@ subunits) to pin the bug to exactly this boundary, not a general
 near-zero failure. Models only the break-then-apply ordering, not the
 surrounding `Decimal` percentage/fixed-amount computation.
 
+## `RefundInvariant.lean`: closes the open refund/status assumption
+
+`InvoiceAmountDue.lean` flagged, as an open assumption, whether a
+transaction's `Refunded` status and its `amount_refunded` field are kept
+consistent by whatever code sets them. Traced it:
+`repositories/payment_transactions.rs`'s reversal handler (`:329-394`)
+clamps `new_amount_refunded` to `[0, transaction.amount]` in every one of
+its three branches (`Cumulative` `.clamp(0, amount)` `:346`, `Full` sets it
+to exactly `amount` `:369`, `Incremental` `.min(amount)` `:386`) and flips
+status to `Refunded` iff `new_amount_refunded >= amount` (`:390-394`) — which
+combined with the clamp means iff it equals `amount` exactly. **The
+assumption holds; this is a positive result, closing a real gap, not
+finding a bug.** The function is also genuinely careful about redelivery
+idempotency (`refunded_at` high-water-mark checks, an explicit no-op guard)
+— not modeled here, a different concern from the arithmetic this closes.
+`RefundInvariant.lean` imports `InvoiceAmountDue.lean` and connects the two
+directly: `refunded_transactions_net_to_zero` proves a fully clawed-back
+transaction nets to exactly `0` in `settledSum`'s formula.
+
+Scoped credit-note issuance alongside this: `repositories/credit_notes.rs:1035-1043`
+rejects a `DebtCancellation` credit note whose total exceeds
+`invoice.amount_due` at creation time — a real, correct-looking guard — but
+whether the invoice row is locked (`SELECT FOR UPDATE`) before that check,
+and whether `applied_credits` and `cancelled_sum`'s `DebtCancellation`
+credit notes could ever share the same underlying credit, are both
+genuinely unconfirmed in the time spent, not asserted as bugs or ruled out.
+Left open for a follow-up that specifically traces the locking.
+
 ## `recompute_amount_due_from_settled_payments`: monotone and exact
 
 The concrete invariant "migrations" surfaced. `InvoiceAmountDue.lean`

@@ -1,5 +1,19 @@
 # Proof register — how to read `register.toml`
 
+## License
+
+This directory (`proof/` — the Lean sources under `MeteroidVerify/`,
+`register.toml`, `RESEARCH.md`, `lakefile.lean`, and this file) and the two
+Rust companion crates it depends on, `crates/meteroid-proof-core/` and
+`crates/meteroid-pure-core/`, are licensed under **Apache License 2.0**
+(see `proof/LICENSE` and each crate's own `LICENSE` file), distinct from
+the **AGPL-3.0-only** license covering the rest of this repository (see the
+top-level `LICENSE`). This carve-out reflects that the proof code is a
+self-contained, independently-authored verification harness that is not
+linked into meteroid's own binaries and can be used, forked, or referenced
+under permissive terms independent of the AGPL obligations that apply to
+meteroid's application code.
+
 Every `#[pure_core]` function in `crates/meteroid-proof-core` has exactly one
 `[[core]]` row in `register.toml`. Rules a `scripts/proof-register.py` gate
 (ported from `linkfold`/`intent`, not yet added here) will enforce statically:

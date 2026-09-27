@@ -185,6 +185,12 @@ Copyright 2026 Meteroid
 
 Licensed under the AGPL V3 License. <br/> See [LICENSE](LICENSE) for more information.
 
+**Exception:** the formal-verification harness under [`proof/`](proof/) and
+its Rust companion crates, [`crates/meteroid-proof-core`](crates/meteroid-proof-core)
+and [`crates/meteroid-pure-core`](crates/meteroid-pure-core), are licensed
+under Apache License 2.0 instead — see [`proof/LICENSE`](proof/LICENSE) and
+[`proof/PROOF.md`](proof/PROOF.md#license).
+
 For enterprise support, addons or custom licensing options, please contact us.
 
 ## Contributors ✨

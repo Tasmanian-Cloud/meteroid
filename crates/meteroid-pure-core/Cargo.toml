@@ -2,7 +2,8 @@
 name = "meteroid-pure-core"
 version = "0.1.0"
 edition = "2021"
-description = "Inert #[pure_core] marker: an attribute whose absence is a register violation (proof/PROOF.md)."
+license = "Apache-2.0"
+description = "Inert #[pure_core] marker: an attribute whose absence is a register violation (proof/PROOF.md). Licensed Apache-2.0, distinct from the rest of this repository (AGPL-3.0-only) — see LICENSE."
 
 [lib]
 proc-macro = true

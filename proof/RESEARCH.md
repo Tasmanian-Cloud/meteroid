@@ -489,6 +489,23 @@ Added `existsLiveCheck`/`exists_live_iff_amount_due_zero` to
 independently-maintained checks provably agree, not merely similarly
 named), not a restatement of the existing theorem.
 
+**A third copy of the formula, checked and found consistent by construction.**
+`services/invoices/consolidate.rs:229-241` computes
+`amount_due = max(0, total - applied_credits)` for a newly-merged
+consolidated invoice — textually missing the `cancelled_sum` term that the
+other two copies have. Traced why: `build_and_finalize_consolidated`'s
+`members` are always `Draft`-status invoices (the `members.len() <= 1`
+branch right above it calls `finalize_invoice_tx`, i.e. these members have
+never been finalized), and `create_user_credit_note_tx`
+(`repositories/credit_notes.rs:623-627`) rejects credit-note creation
+against any invoice that isn't `Finalized`. A draft invoice structurally
+cannot have a `DebtCancellation` credit note against it yet, so
+`cancelled_sum` is always `0` for every input to this formula — the shorter
+form is consistent by construction, not an omitted term. Not modeled in
+Lean: the discharging fact is a cross-function state invariant
+("credit notes require Finalized"), not decidable arithmetic — recorded
+here rather than forced into a theorem it doesn't fit.
+
 The lock genuinely serializes concurrent `create_credit_note_tx` calls
 against the same invoice — but serialization only prevents dirty writes; it
 does nothing for a guard whose input was captured before the wait and never

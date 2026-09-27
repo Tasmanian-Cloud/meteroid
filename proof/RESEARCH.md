@@ -535,6 +535,28 @@ proof, not a comment, would catch. `exhausted_forever` proves the ladder
 stays exhausted for every attempt count beyond the boundary, not just the
 one checked by hand.
 
+## `amount_refunded`'s clamp: proved, not just traced, for all four write paths
+
+`RefundInvariant.lean` had, since its own first version, ASSERTED (from
+reading, not proving) that `reverse_transaction_tx`'s three branches clamp
+`new_amount_refunded` to `[0, amount]`. Scouted the actual reversal/
+reinstatement code (`repositories/payment_transactions.rs:283-555`) in
+full, which turns out to be unusually well-documented by its own author —
+already reasoning through a genuinely subtle edge case in a code comment
+(`:333-343`: `amount_refunded` is written by both cumulative refund totals
+AND dispute deltas, and whether a refund-after-dispute could get
+"swallowed" by the `.max()` — concluded unreachable on Stripe because a
+disputed charge can't be refunded via the API, so the two writers never
+actually contend for the column). Formalized the FOUR real write paths —
+`Cumulative`, `Full`, `Incremental` (`reverse_transaction_tx`) and the
+reinstatement path (`reinstate_transaction_tx`, the only one that
+decreases `amount_refunded`) — as `PaymentReversal.lean`, proving each
+maps an in-range value to another in-range value. This is an inductive
+invariant, not four independent one-shot checks: `Cumulative`'s
+`.max(amount_refunded)` term specifically needs the PRIOR value already in
+`[0, amount]` to conclude the new one is too — closing what
+`RefundInvariant.lean` had left as a traced assertion, not a proof.
+
 ## Invoice/credit-note sequential numbering: correctly locked, unlike the DebtCancellation guard
 
 Directly adjacent to the credit-note race: `invoicing_entity.next_invoice_number`

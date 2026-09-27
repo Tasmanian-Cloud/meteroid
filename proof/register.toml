@@ -329,3 +329,59 @@ status_reason = "lake build green, 2026-09-27. Checked by hand-tracing schedule_
 controls = ["first_attempt_picks_first_rung", "fourth_attempt_exhausts_the_ladder", "exhausted_forever", "matches_the_ladder_exactly (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "cumulative_refund"
+module = "meteroid-proof-core::cores::payment_reversal"
+file = "crates/meteroid-proof-core/src/cores/payment_reversal.rs"
+lean_module = "MeteroidVerify.PaymentReversal"
+lean_file = "proof/MeteroidVerify/PaymentReversal.lean"
+algebra = "verbatim (payment_transactions.rs:346-347): total.clamp(0,amount).max(amount_refunded)"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Closes RefundInvariant.lean's previously-ASSUMED clamp: cumulativeRefund_clamped proves 0<=result<=amount given the inductive hypothesis 0<=amount_refunded<=amount holds on entry -- the .max(amount_refunded) term is exactly why this needs the hypothesis rather than following from total/amount alone."
+controls = ["cumulativeRefund_clamped", "all_four_paths_stay_within_amount (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "full_refund"
+module = "meteroid-proof-core::cores::payment_reversal"
+file = "crates/meteroid-proof-core/src/cores/payment_reversal.rs"
+lean_module = "MeteroidVerify.PaymentReversal"
+lean_file = "proof/MeteroidVerify/PaymentReversal.lean"
+algebra = "verbatim (payment_transactions.rs:372): amount"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. fullRefund_clamped: trivially 0<=amount<=amount given 0<=amount."
+controls = ["fullRefund_clamped", "all_four_paths_stay_within_amount (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "incremental_refund"
+module = "meteroid-proof-core::cores::payment_reversal"
+file = "crates/meteroid-proof-core/src/cores/payment_reversal.rs"
+lean_module = "MeteroidVerify.PaymentReversal"
+lean_file = "proof/MeteroidVerify/PaymentReversal.lean"
+algebra = "verbatim (payment_transactions.rs:386): (amount_refunded + delta.max(0)).min(amount)"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. incrementalRefund_clamped: 0<=result<=amount given 0<=amount_refunded and 0<=amount, no upper-bound hypothesis on amount_refunded itself needed since the outer .min(amount) alone suffices."
+controls = ["incrementalRefund_clamped", "all_four_paths_stay_within_amount (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "reinstate_refund"
+module = "meteroid-proof-core::cores::payment_reversal"
+file = "crates/meteroid-proof-core/src/cores/payment_reversal.rs"
+lean_module = "MeteroidVerify.PaymentReversal"
+lean_file = "proof/MeteroidVerify/PaymentReversal.lean"
+algebra = "verbatim (payment_transactions.rs:505-511): amount_refunded - reinstated_amount.clamp(0, amount_refunded)"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. reinstateRefund_clamped: 0<=result<=amount_refunded (a fortiori <=amount, the only path that ever decreases amount_refunded) given 0<=amount_refunded, with no dependency on amount's value at all."
+controls = ["reinstateRefund_clamped", "all_four_paths_stay_within_amount (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

@@ -17,6 +17,15 @@ which combined with the clamp means iff `new_amount_refunded ==
 transaction.amount` exactly. **The assumption holds — this is a positive
 result, not a bug.**
 
+**The clamp itself was initially only traced by reading, not proved.**
+`PaymentReversal.lean` closes that gap: `cumulativeRefund_clamped`,
+`fullRefund_clamped`, `incrementalRefund_clamped` prove all three branches
+(plus `reinstateRefund_clamped` for `reinstate_transaction_tx`, the fourth
+and only decreasing write path) map an already-in-`[0, amount]` value to
+another one — an inductive invariant, not a one-shot check, since
+`Cumulative`'s `.max(amount_refunded)` term specifically depends on the
+PRIOR value already being in range.
+
 The function is also genuinely careful about idempotency (`refunded_at`
 high-water-mark checks at `:358-368`/`:375-385` reject stale/redelivered
 reversal events, and `:397-399` is an explicit no-op guard) — not modeled

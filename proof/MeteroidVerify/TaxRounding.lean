@@ -1,14 +1,19 @@
 /-!
 # meteroid / TaxRounding — Path B (native Lean, not Aeneas-extracted)
 
-`RESEARCH.md`: `determine_tax_details` (`meteroid-tax/src/shared.rs:56-242`)
-computes `Decimal::from(item.amount) * rate_decimal`, rounded via
-`round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)`, where
+`RESEARCH.md`: as of the `feat: rewrite custom tax model and add tax
+categories` rewrite (tasmanian-cloud/meteroid#1212), `determine_tax_details`
+(`meteroid-tax/src/shared.rs:85-115`) is a thin dispatcher over a precedence
+ladder: `resolve_override` (`:117-208`, a merchant-authored, already-exact
+`Decimal` rate — no float seam) and `resolve_engine_rate` (`:209-313`, the
+resolved statutory/manual rate). Both apply
+`round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)`
+(`:172` override, `:218,252,290` engine); `resolve_engine_rate` is where
 `rate_decimal` comes from `Decimal::from_f64(rate.rate)`
-(`world_tax::TaxRate.rate: f64`, `shared.rs:194-195,217-218`).
-`rust_decimal::Decimal` has no Aeneas builtin — extraction was not attempted
-for this reason (confirmed impractical alongside the float finding for
-proration; see `RESEARCH.md`).
+(`world_tax::TaxRate.rate: f64`, `:248,277`) — the seam this file's open gap
+below is about. `rust_decimal::Decimal` has no Aeneas builtin — extraction
+was not attempted for this reason (confirmed impractical alongside the float
+finding for proration; see `RESEARCH.md`).
 
 **What is modeled:** round-half-away-from-zero applied to an EXACT integer
 ratio `amount * rateNumerator / rateDenominator` — i.e., the intended

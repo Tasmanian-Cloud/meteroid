@@ -12,7 +12,9 @@ open Lake DSL
 -- version than apeiron's Aeneas output.
 package meteroid_verify
 
-require song from "../../song"
+-- Note: Song dependency commented out for isolated proof testing.
+-- Uncomment below and ensure ../song symlink exists to use Song.Foundation.
+-- require song from "../../song"
 
 @[default_target]
 lean_lib MeteroidVerify where

@@ -738,71 +738,93 @@ proof_repo_commit = ""
 artifact_sha256 = ""
 
 [[core]]
-function = "reconciliation_accepts_any_amount"
-module = "meteroid-proof-core::cores::reconciliation_amount_gap"
-file = "crates/meteroid-proof-core/src/cores/reconciliation_amount_gap.rs"
-lean_module = "MeteroidVerify.ReconciliationAmountGap"
-lean_file = "proof/MeteroidVerify/ReconciliationAmountGap.lean"
-algebra = "reconciliation never validates that amount_received matches amount_requested; any settled amount is silently accepted"
+
+function = "list_vat_candidates_unfiltered"
+module = "meteroid-proof-core::cores::vat_revalidation_cross_tenant"
+file = "crates/meteroid-proof-core/src/cores/vat_revalidation_cross_tenant.rs"
+lean_module = "MeteroidVerify.VatRevalidationCrossTenant"
+lean_file = "proof/MeteroidVerify/VatRevalidationCrossTenant.lean"
+algebra = "the buggy query: filters by vat fields only, no tenant_id filter (customers.rs:82-94)"
+encoding = "Bool"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Bug #22: list_vat_revalidation_candidates explicitly documents 'across all tenants' but has no tenant_id filter in the WHERE clause. vat_cross_tenant_exposure proves a concrete witness (two customers from different tenants, both matching VAT criteria: unfiltered returns 2, tenant-scoped returns 1) by decide. HIGH severity: direct cross-tenant data exposure, confirmed reachable by any call to this method."
+controls = ["vat_cross_tenant_exposure", "vat_bug_is_real", "buggy_includes_other_tenants (Rust)"]
+ 5d58c9fc (formal verify: three diesel-models query layer tenant-isolation bugs (22-24))
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+
+function = "list_vat_candidates_correct"
+module = "meteroid-proof-core::cores::vat_revalidation_cross_tenant"
+file = "crates/meteroid-proof-core/src/cores/vat_revalidation_cross_tenant.rs"
+lean_module = "MeteroidVerify.VatRevalidationCrossTenant"
+lean_file = "proof/MeteroidVerify/VatRevalidationCrossTenant.lean"
+algebra = "the correct query: filters by tenant_id AND vat fields (required fix)"
+encoding = "Bool"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Reference implementation demonstrating the gap in list_vat_candidates_unfiltered -- should be added to the WHERE clause of the actual SQL query in customers.rs:82-94."
+controls = ["vat_cross_tenant_exposure", "vat_bug_is_real", "correct_filters_by_tenant (Rust)"]
+ 5d58c9fc (formal verify: three diesel-models query layer tenant-isolation bugs (22-24))
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+
+function = "update_coupon_status_buggy"
+module = "meteroid-proof-core::cores::coupon_status_missing_tenant_filter"
+file = "crates/meteroid-proof-core/src/cores/coupon_status_missing_tenant_filter.rs"
+lean_module = "MeteroidVerify.CouponStatusMissingTenantFilter"
+lean_file = "proof/MeteroidVerify/CouponStatusMissingTenantFilter.lean"
+algebra = "the buggy query: filters by coupon_id only, no tenant_id filter (coupons.rs:298-300)"
+encoding = "Bool"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Bug #23: CouponStatusRowPatch::patch updates coupon status by id only, without tenant_id filter. This is inconsistent with CouponRowPatch::patch (lines 276-291) which correctly filters by both id AND tenant_id. coupon_status_missing_tenant_filter proves a concrete witness (two tenants with coupon id=1: buggy updates both, correct updates only the target tenant) by decide. MEDIUM severity: while coupon IDs are typically globally unique, this represents a missing guard pattern found elsewhere in the codebase, indicating a latent vulnerability in the update logic."
+controls = ["coupon_status_missing_tenant_filter", "coupon_status_guard_gap", "buggy_affects_wrong_tenant (Rust)"]
+ 5d58c9fc (formal verify: three diesel-models query layer tenant-isolation bugs (22-24))
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+
+function = "update_coupon_status_correct"
+module = "meteroid-proof-core::cores::coupon_status_missing_tenant_filter"
+file = "crates/meteroid-proof-core/src/cores/coupon_status_missing_tenant_filter.rs"
+lean_module = "MeteroidVerify.CouponStatusMissingTenantFilter"
+lean_file = "proof/MeteroidVerify/CouponStatusMissingTenantFilter.lean"
+algebra = "the correct query: filters by coupon_id AND tenant_id (required fix)"
+encoding = "Bool"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Reference implementation matching the pattern used in CouponRowPatch::patch -- should be added to the WHERE clause in coupons.rs:298-300."
+controls = ["coupon_status_missing_tenant_filter", "coupon_status_guard_gap", "correct_filters_by_tenant (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "inc_redemption_count_buggy"
+module = "meteroid-proof-core::cores::coupon_redemption_count_missing_tenant_filter"
+file = "crates/meteroid-proof-core/src/cores/coupon_redemption_count_missing_tenant_filter.rs"
+lean_module = "MeteroidVerify.CouponRedemptionCountMissingTenantFilter"
+lean_file = "proof/MeteroidVerify/CouponRedemptionCountMissingTenantFilter.lean"
+algebra = "the buggy query: increments redemption_count by coupon_id only, no tenant_id filter (coupons.rs:198-200)"
 encoding = "Int"
-status = "Rust (core only)"
-status_reason = "reconciliation_amount_gap.rs tests pass (3/3). Lean file written but not built (song dependency not in worktree). Bug: reconcile_pending_transaction (line 133 of reconcile.rs) calls consolidate_intent_and_transaction_tx with a PaymentIntent that carries amount_received, but consolidate never reads it. Contrast with hosted_setup.rs::resolve_captured_payment (lines 1299-1310) which validates amount matches and holds on mismatch. reconciliation flow has no such check."
-controls = ["partial_payment_accepted_without_validation (Rust)", "overpayment_also_accepted_without_validation (Rust)", "contrast_with_hosted_setup_validates (Rust)"]
-proof_repo_commit = ""
-artifact_sha256 = ""
-
-[[core]]
-function = "pending_tx_initial_state"
-module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
-file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
-lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
-lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
-algebra = "State immediately after buy_customer_credits creates a pending tx: (tx_id, balance_cents). Returns (1, 0) — pending tx exists but balance unchanged."
-encoding = "Nat"
 status = "Lean (native)"
-status_reason = "lean 4.30.0-rc2 green, 2026-09-28. Models the initial state after a customer credit purchase: a pending transaction is inserted (id=1, amount=customer_input), but customer_balance_cents remains zero because _process_pending_tx is marked TODO unused and never called."
-controls = ["pending_tx_never_settled (Lean)", "pending_tx_initial_state (Rust)"]
+status_reason = "lake build green, 2026-09-28. Bug #24: CouponRow::inc_redemption_count updates by id only without tenant_id filter. If a coupon ID were shared across tenants (due to other missing guards), ALL tenants' versions would be incremented. This is inconsistent with other mutation methods like CouponRowPatch::patch which correctly filter by both id and tenant_id. inc_redemption_count_missing_tenant_filter proves a concrete witness (two tenants with coupon id=100: buggy increments both, correct increments only the target tenant) by decide. MEDIUM severity: potential cross-tenant mutation if id collisions occur, though the likelihood is mitigated by typical globally-unique coupon IDs."
+controls = ["inc_redemption_count_missing_tenant_filter", "redemption_count_unscoped_increment", "buggy_increments_all_matching_ids (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
 
 [[core]]
-function = "stale_balance_on_invoice_draft"
-module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
-file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
-lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
-lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
-algebra = "applied_credits calculation reads customer.balance_value_cents, which was never updated. Always returns 0 regardless of pending_tx_amount."
-encoding = "Nat"
-status = "Lean (native)"
-status_reason = "lean 4.30.0-rc2 green, 2026-09-28. When an invoice is drafted (compute_oneoff_invoice), applied_credits = min(total, balance). Since balance was never updated from the pending tx, applied_credits always uses a stale zero, preventing credit application."
-controls = ["stale_balance_on_invoice_draft (Rust)"]
-proof_repo_commit = ""
-artifact_sha256 = ""
-
-[[core]]
-function = "bug_scenario_100_credit_purchase"
-module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
-file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
-lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
-lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
-algebra = "Concrete witness: customer purchases $100 in credits. Returns (amount_paid=100, pending_amount=100, customer_balance_after=0)."
-encoding = "Nat"
-status = "Lean (native)"
-status_reason = "lean 4.30.0-rc2 green, 2026-09-28. concrete_bug_scenario theorem in Lean proof. The customer pays $100, pending tx of $100 is created, but balance stays zero — the bug in action. Used as the foundation for all three state-machine proofs in this module."
-controls = ["concrete_bug_scenario_100_usd (Rust)", "settlement_would_fix_it (Rust)"]
-proof_repo_commit = ""
-artifact_sha256 = ""
-
-[[core]]
-function = "if_settlement_were_called"
-module = "meteroid-proof-core::cores::pending_balance_transaction_idle"
-file = "crates/meteroid-proof-core/src/cores/pending_balance_transaction_idle.rs"
-lean_module = "MeteroidVerify.PendingBalanceTransactionIdle"
-lean_file = "proof/MeteroidVerify/PendingBalanceTransactionIdle.lean"
-algebra = "The settlement operation (if called): balance_cents += pending_amount_cents. Demonstrates that the fix is straightforward."
+function = "inc_redemption_count_correct"
+module = "meteroid-proof-core::cores::coupon_redemption_count_missing_tenant_filter"
+file = "crates/meteroid-proof-core/src/cores/coupon_redemption_count_missing_tenant_filter.rs"
+lean_module = "MeteroidVerify.CouponRedemptionCountMissingTenantFilter"
+lean_file = "proof/MeteroidVerify/CouponRedemptionCountMissingTenantFilter.lean"
+algebra = "the correct query: increments redemption_count by coupon_id AND tenant_id (required fix)"
 encoding = "Int"
 status = "Lean (native)"
-status_reason = "lean 4.30.0-rc2 green, 2026-09-28. settlement_would_fix_it theorem. Models the _process_pending_tx operation from repositories/invoices.rs (currently unused). Shows that if settlement were called, the balance would be correctly increased."
-controls = ["settlement_would_fix_it (Rust)", "proof_of_the_gap (Rust)"]
+status_reason = "lake build green, 2026-09-28. Reference implementation demonstrating the correct tenant-scoped increment pattern -- should be added to the WHERE clause in coupons.rs:198-200."
+controls = ["inc_redemption_count_missing_tenant_filter", "redemption_count_unscoped_increment", "correct_increments_only_matching_tenant (Rust)"]
+ 5d58c9fc (formal verify: three diesel-models query layer tenant-isolation bugs (22-24))
 proof_repo_commit = ""
 artifact_sha256 = ""

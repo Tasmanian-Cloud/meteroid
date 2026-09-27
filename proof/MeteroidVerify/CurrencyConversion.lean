@@ -27,6 +27,17 @@ formula implicitly assumes this factor is `1`, i.e. that
 USD/EUR/GBP/AUD (all exponent 2), silently wrong for any pair that isn't,
 e.g. JPY (exponent 0) or a 3-decimal currency like KWD.
 
+**This is not an isolated call site.** The identical missing-exponent-factor
+shape recurs at `services/subscriptions/terminate.rs:220-225`,
+`repositories/invoices.rs:745-753` (both MRR-to-USD dashboard reporting),
+and — customer-facing — `services/subscriptions/utils.rs:535-548` (a
+fixed-amount coupon converted into the subscription's billing currency).
+All four resolve through the same `get_mapped_rates_for_currency`
+(`historical_rates.rs:121-136`) rate and the same missing `10^(exponentDiff)`
+factor this file proves for `convert_currency` (`RESEARCH.md`); not
+independently modeled here since the arithmetic is identical, not merely
+similar.
+
 **What is modeled:** the two formulas as exact integer/rational arithmetic
 — not `rust_decimal`'s own rounding (`.round()`, `:40`) or `f32`'s
 approximation of the stored rate, both separate, already-documented-

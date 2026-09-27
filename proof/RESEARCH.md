@@ -562,6 +562,41 @@ large. Modeled as exact integer arithmetic; the `rust_decimal::Decimal`
 rounding and `f32` rate-precision are separate, already-documented seams
 (the exponent gap is structural and independent of either).
 
+## The exponent-omission bug recurs at four more sites, one of them customer-facing
+
+Grepped for the same shape (`Decimal::from_f32(rate)` multiplying/dividing
+a stored subunit amount by a `HistoricalRate`-sourced whole-unit rate) to
+check whether `convert_currency` is the only place carrying this defect.
+It is not — the identical arithmetic (missing `10^(exponentDiff)`) recurs
+at:
+
+- `services/subscriptions/terminate.rs:220-225` and
+  `repositories/invoices.rs:745-753`: `mrr_change_usd = mrr_delta /
+  rate_decimal`, converting a churned/booked MRR delta (`net_mrr_change:
+  i64`, subunit convention confirmed via `diesel-models/src/bi.rs:54,70`)
+  into USD for the `bi_delta_mrr_daily` dashboard table. Internal reporting
+  only — wrong dashboard numbers for any non-USD-exponent-2 subscription
+  currency, not a customer-facing money movement.
+- `services/subscriptions/utils.rs:535-548`: **customer-facing.**
+  `fixed_amount * Decimal::from_f32(rate)`, converting a coupon's
+  fixed-amount discount from the coupon's own currency into
+  `subscription_currency` via `store.get_historical_rate` — which resolves
+  through the exact same `get_mapped_rates_for_currency`
+  (`historical_rates.rs:121-136`) that produces `convert_currency`'s rate.
+  A fixed-amount coupon issued in a currency with a different subunit
+  exponent than the subscription it's applied to would be discounted by
+  the wrong amount, by the same power-of-10 factor `CurrencyConversion.lean`
+  proves for `convert_currency`.
+
+Not independently reproven in Lean — the arithmetic is identical to
+`convertCurrency`/`convertCurrencyScaled`, already proved once; re-deriving
+the same fact four more times would be repetition, not new content. Listed
+here because it changes the finding's scope: this isn't one call site with
+a bug, it's one MISSING STEP (an exponent lookup) that several call sites
+independently forgot, most likely because none of them are exercised by
+the same-exponent currency pairs (USD/EUR/GBP/AUD) this codebase is
+presumably tested against day to day.
+
 ## `amount_refunded`'s clamp: proved, not just traced, for all four write paths
 
 `RefundInvariant.lean` had, since its own first version, ASSERTED (from

@@ -535,6 +535,33 @@ proof, not a comment, would catch. `exhausted_forever` proves the ladder
 stays exhausted for every attempt count beyond the boundary, not just the
 one checked by hand.
 
+## `convert_currency`: a real 100x bug for any currency pair with different subunit exponents
+
+Scouted `repositories/customer_balance.rs`'s `convert_currency` (`:16-42`,
+used by `consolidate.rs`, checkout, and customer-balance operations
+wherever an amount needs to move between currencies). It computes
+`amount_cents * rate`, where `rate = to_rate / from_rate` is a plain
+whole-unit-relative-to-USD market FX rate
+(`domain/historical_rates.rs:15`, `f32`). Checked directly: this file never
+calls `rusty_money::iso::find(currency).exponent` anywhere — a real,
+confirmed omission, contrasted with `fees.rs`, `credit_notes.rs`, and every
+other money-conversion site in the codebase, which all look up the
+currency's exponent explicitly before scaling.
+
+The correct conversion needs an extra `10^(toExponent - fromExponent)`
+factor: convert `amount_cents` to whole `from_currency` units, apply the
+market rate, then convert back to `to_currency` subunits. The real code
+implicitly assumes this factor is `1` — true for USD/EUR/GBP/AUD (all
+exponent 2, which is why this has stayed latent), silently wrong for any
+pair where it isn't, e.g. converting to/from JPY (exponent 0) or a
+3-decimal currency like KWD. `CurrencyConversion.lean`'s
+`usd_to_jpy_exponent_mismatch_inflates_by_100x` proves a concrete witness:
+converting $1.00 (100 USD cents) to JPY at 150 JPY/USD, the real formula
+returns `15000` where the correct answer is `150` — exactly `10^(2-0)` too
+large. Modeled as exact integer arithmetic; the `rust_decimal::Decimal`
+rounding and `f32` rate-precision are separate, already-documented seams
+(the exponent gap is structural and independent of either).
+
 ## `amount_refunded`'s clamp: proved, not just traced, for all four write paths
 
 `RefundInvariant.lean` had, since its own first version, ASSERTED (from

@@ -385,3 +385,31 @@ status_reason = "lake build green, 2026-09-27. reinstateRefund_clamped: 0<=resul
 controls = ["reinstateRefund_clamped", "all_four_paths_stay_within_amount (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "convert_currency"
+module = "meteroid-proof-core::cores::currency_conversion"
+file = "crates/meteroid-proof-core/src/cores/currency_conversion.rs"
+lean_module = "MeteroidVerify.CurrencyConversion"
+lean_file = "proof/MeteroidVerify/CurrencyConversion.lean"
+algebra = "verbatim (customer_balance.rs:40): amount_cents * rate, rate = to_rate/from_rate a whole-unit market FX rate"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. CONFIRMED bug: convert_currency never calls rusty_money::iso::find(currency).exponent anywhere in customer_balance.rs (checked directly), unlike every other money-conversion site in the codebase (fees.rs, credit_notes.rs, etc.), so it silently assumes from_currency and to_currency use the same number of subunit decimal places. usd_to_jpy_exponent_mismatch_inflates_by_100x proves a concrete witness (100 USD cents at 150 JPY/USD -> real formula gives 15000, correct is 150, a 10^(2-0) factor) by decide; same_exponent_matches_at_2 shows why the bug stays latent for USD/EUR/GBP/AUD pairs (all exponent 2), where the missing factor happens to be exactly 1."
+controls = ["usd_to_jpy_exponent_mismatch_inflates_by_100x", "same_exponent_matches_at_2", "usd_to_jpy_exponent_mismatch_inflates_by_100x (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "convert_currency_scaled"
+module = "meteroid-proof-core::cores::currency_conversion"
+file = "crates/meteroid-proof-core/src/cores/currency_conversion.rs"
+lean_module = "MeteroidVerify.CurrencyConversion"
+lean_file = "proof/MeteroidVerify/CurrencyConversion.lean"
+algebra = "the correct conversion: amount_cents * rate * 10^to_exponent / 10^from_exponent, converting through whole-unit currency amounts"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Reference implementation used only to demonstrate the gap in convert_currency (this session does not claim it should replace the real code without further review of rounding/precision at the currency-conversion boundary -- see this file's own module doc on scope)."
+controls = ["usd_to_jpy_exponent_mismatch_inflates_by_100x", "same_exponent_matches_at_2 (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

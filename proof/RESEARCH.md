@@ -562,6 +562,44 @@ large. Modeled as exact integer arithmetic; the `rust_decimal::Decimal`
 rounding and `f32` rate-precision are separate, already-documented seams
 (the exponent gap is structural and independent of either).
 
+## `calculate_mrr` reports the ORIGINAL slot count for the life of the subscription
+
+Scouted `calculate_mrr` (`services/subscriptions/utils.rs:82-116`) — the
+shared MRR formula — and its dead-looking first line
+(`let _mrr = total_cents / period_as_months;`, discarded, superseded two
+lines later by a `Decimal`-based division; harmless vestigial code, not a
+bug, not pursued further).
+
+Its `Slot` arm (`:101-105`) uses `initial_slots` directly. Traced whether
+that field is kept current: `apply_parameters`
+(`subscription_components.rs:288-296`) is its ONLY mutator, and it's
+docstring-scoped to subscription creation / plan-override
+parameterization. `update_subscription_slots`
+(`services/subscriptions/slots.rs:37-173`, the real mutation entrypoint for
+slot count changes) was grepped directly for any write to the persisted
+fee — none exists. It only appends to `slot_transactions`, an independent,
+append-only ledger (`domain/slot_transactions.rs`) whose seed row copies
+`initial_slots` in ONCE and is never read back by that name again.
+
+**A correct, slot-aware replacement exists and is used in exactly one
+place.** `plan_change.rs::calculate_components_mrr_with_slots`
+(`:1695-1741`) queries
+`SlotTransactionRow::fetch_by_subscription_id_and_unit_locked(..)
+.current_active_slots` for `Slot` components — the right approach — but
+every OTHER caller of MRR (`insert/process.rs:703,708`,
+`amendment.rs:236,242,247,252,1082`, `billing_events.rs:550,821`,
+`plan_change.rs:984` — 9 sites) calls the generic `calculate_mrr` directly.
+At subscription creation `initial_slots` IS the live count, so
+`insert/process.rs`'s call is fine; every call reached after a
+subscription's FIRST slot-count change is not. This is the same "correct
+check exists, not wired everywhere" shape as `SlotBounds.lean`'s finding,
+but for a headline financial metric (MRR expansion/contraction
+tracking, `BiMrrMovementLogRowNew`'s churn/expansion movement log) rather
+than a validation guard — plausibly higher business impact.
+`MrrSlotStaleness.lean`'s `stale_after_upgrade_witness` proves the
+concrete divergence (a 5→10 slot upgrade: the generic formula still
+reports the original 5-slot MRR).
+
 ## The exponent-omission bug recurs at four more sites, one of them customer-facing
 
 Grepped for the same shape (`Decimal::from_f32(rate)` multiplying/dividing

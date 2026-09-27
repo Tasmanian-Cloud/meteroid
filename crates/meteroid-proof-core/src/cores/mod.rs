@@ -6,6 +6,7 @@ pub mod discount;
 pub mod dunning_schedule;
 pub mod invoice_amount_due;
 pub mod metering_agg;
+pub mod mrr_slot_staleness;
 pub mod payment_reversal;
 pub mod refund_invariant;
 pub mod slot_bounds;

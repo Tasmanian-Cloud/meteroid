@@ -535,6 +535,31 @@ proof, not a comment, would catch. `exhausted_forever` proves the ladder
 stays exhausted for every attempt count beyond the boundary, not just the
 one checked by hand.
 
+## Invoice/credit-note sequential numbering: correctly locked, unlike the DebtCancellation guard
+
+Directly adjacent to the credit-note race: `invoicing_entity.next_invoice_number`
+/`next_credit_note_number` are the sequential-numbering counters both
+`finalize.rs` and `credit_notes.rs` allocate document numbers from. Same
+general shape as the DebtCancellation bug (lock the row, read a field, use
+it) — checked whether this one also discards its lock's fresh result.
+
+It does not. All three allocation sites —
+`finalize.rs:163-214` (invoice numbering), `credit_notes.rs:709-729`
+(`finalize_credit_note_tx`), `credit_notes.rs:1051-1057,1186-1194`
+(`create_credit_note_tx`, finalize-at-creation path) — bind the
+`InvoicingEntityRow` from `select_for_update_by_id_and_tenant` (a real
+`SELECT ... FOR NO KEY UPDATE`) to a single local once, then use that SAME
+binding's `next_invoice_number`/`next_credit_note_number` both for the
+number embedded in the document AND as the argument to
+`update_invoicing_entity_number`/`update_credit_note_number` — never a
+second, separately-fetched or pre-lock value. The lock is held for the
+connection's transaction lifetime, so two concurrent finalizations against
+the same invoicing entity serialize correctly: no duplicate document
+numbers, matching the credit-note-number path's confirmed-correct pattern.
+Not modeled in Lean (a locking-discipline / call-graph fact across three
+call sites, not decidable arithmetic — same reasoning as the dunning
+concurrency check above) — recorded as a traced, confirmed-safe design.
+
 ## `TaxRounding.lean`'s rounding rule is the codebase's canonical money-rounding primitive
 
 Scouting `fees.rs`'s `compute_usage_price` (`:218-253`, covers `PerUnit`,

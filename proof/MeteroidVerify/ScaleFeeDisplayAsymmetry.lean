@@ -13,54 +13,55 @@ actual rendering or user-facing text.
 **Model**: Discrete fee scaling and display field extraction.
 
 `SubscriptionFee` modeled as a sum type:
-- `OneTime (rate : Nat) (quantity : Nat)`
-- `Rate (rate : Nat)`
-
-`AddedComponent` carries both scaled fee and instance_quantity separately.
+- `oneTime (rate quantity : Nat)`
+- `rateOnly (rate : Nat)`
 
 **What's proved**:
-- `scale_fee_onetime_scales_quantity`: `scale_fee(OneTime r q, n) = OneTime r (q*n)`
-- `onetime_amount_cents`: Computing cents from a OneTime scales rate × quantity correctly
-- `onetime_display_extracts_total`: When extracting quantity from a scaled OneTime for
-  display, you get the TOTAL (inner × add-on), not the add-on instance count alone
-- `onetime_display_asymmetry`: For non-OneTime types, display uses `instance_quantity`
-  (the add-on count); for OneTime (after scaling), display extracts from the scaled fee
-  (the total), creating an asymmetry
-- `amount_cents_correct`: Despite display asymmetry, the actual charge amount is
-  computed correctly (both paths compute `rate * total_qty * factor`)
+- `scale_onetime_folds_qty`: `scale_fee(OneTime r q, n) = OneTime r (q*n)`
+- `amount_is_correct`: computing cents from a scaled OneTime multiplies rate × total quantity correctly
+- `onetime_displays_total_not_instance_count`: extracting quantity from a scaled OneTime
+  for display yields the TOTAL (inner × add-on), not the add-on instance count alone
+- `asymmetry_onetime_vs_rate`: a `rateOnly` fee has no quantity to extract at all after
+  scaling, contrasted with `oneTime`'s scaled-total extraction — the two fee shapes
+  disagree on whether "quantity" survives scaling into something displayable
+- `display_disagreement_same_amount`: despite the display asymmetry, the actual charge
+  amount is identical under both framings (`6 × 10 = 3 × (10 × 2) = 60`)
 
 **What's NOT proved**:
 - Actual rendering of invoice text (UI concern, not arithmetic)
 - Whether the asymmetry causes user confusion (design concern)
-- Cross-file consistency with non-proration paths (component.rs) — those use
-  unscaled fees + separate instance_quantity(), so they avoid the issue
+- Cross-file consistency with non-proration paths (`component.rs`) — those use
+  unscaled fees + a separate `instance_quantity()`, so they avoid the issue
 
 **Known limitations**: Pure Lean core, no Decimal / fixed-point arithmetic modeling;
-amounts modeled as Nat (non-negative integers) with implicit cents scaling.
+amounts modeled as `Nat` (non-negative integers) with implicit cents scaling. No nested
+namespace for the fee type — an earlier version of this file put `SubscriptionFee` in a
+`namespace Fee` block and relied on `open Fee` alone to bring its constructors
+(`oneTime`/`rate`) into scope; that opens the OUTER namespace, not the constructor
+namespace nested under the inductive type itself, so every unqualified `oneTime`/`rate`
+use — inside the type's own pattern matches and at every later call site — failed to
+resolve. Flattened to one namespace to avoid the whole class of bug.
+
+Pure Lean core: no Mathlib, no Batteries, no `sorry`/`admit`/`axiom`/`native_decide`.
 -/
 
 namespace MeteroidVerify.ScaleFeeDisplayAsymmetry
 
-namespace Fee
-
 inductive SubscriptionFee where
   | oneTime : (rate : Nat) → (quantity : Nat) → SubscriptionFee
-  | rate : (rate : Nat) → SubscriptionFee
+  | rateOnly : (rate : Nat) → SubscriptionFee
+
+open SubscriptionFee
 
 def scaleFee (fee : SubscriptionFee) (quantity : Nat) : SubscriptionFee :=
   match fee with
-  | oneTime rate qty => oneTime rate (qty * quantity)
-  | rate r => rate (r * quantity)
+  | oneTime r qty => oneTime r (qty * quantity)
+  | rateOnly r => rateOnly (r * quantity)
 
 def onetimeAmountCents (fee : SubscriptionFee) : Nat :=
   match fee with
-  | oneTime rate quantity => rate * quantity
-  | _ => 0
-
-def rateAmountCents (fee : SubscriptionFee) : Nat :=
-  match fee with
-  | rate r => r
-  | _ => 0
+  | oneTime r quantity => r * quantity
+  | rateOnly _ => 0
 
 -- Extraction as used in proration line at line 275 of proration.rs:
 -- quantity: Some(rust_decimal::Decimal::from(*quantity))
@@ -68,11 +69,7 @@ def rateAmountCents (fee : SubscriptionFee) : Nat :=
 def extractQuantityFromFee (fee : SubscriptionFee) : Option Nat :=
   match fee with
   | oneTime _ qty => some qty
-  | _ => none
-
-end Fee
-
-open Fee
+  | rateOnly _ => none
 
 -- Test witness: add-on with 3 instances, each with 2 licenses, $10/license
 def testAddOnThreeInstancesTwoQty : SubscriptionFee :=
@@ -93,38 +90,38 @@ theorem amount_is_correct : onetimeAmountCents testScaledByThree = 60 := by
 -- The instance_quantity field on AddedComponent IS 3, but the OneTime case
 -- in proration.rs extracts from the fee, not from instance_quantity
 theorem onetime_displays_total_not_instance_count :
-  extractQuantityFromFee testScaledByThree = some 6 ∧ 6 ≠ 3 := by
+    extractQuantityFromFee testScaledByThree = some 6 ∧ 6 ≠ 3 := by
   constructor
   · rfl
-  · norm_num
+  · decide
 
 -- Generic: for any inner qty and add-on qty, the extracted quantity is their product
 theorem scale_onetime_folds_qty (innerQty addOnQty : Nat) :
-  extractQuantityFromFee (scaleFee (oneTime 10 innerQty) addOnQty) = some (innerQty * addOnQty) := by
+    extractQuantityFromFee (scaleFee (oneTime 10 innerQty) addOnQty) = some (innerQty * addOnQty) := by
   rfl
 
--- Rate type (for comparison): also gets scaled
-theorem rate_also_scaled (r n : Nat) :
-  scaleFee (rate r) n = rate (r * n) := by
+-- Rate-only type (for comparison): also gets scaled
+theorem rateOnly_also_scaled (r n : Nat) :
+    scaleFee (rateOnly r) n = rateOnly (r * n) := by
   rfl
 
--- Asymmetry: OneTime extracts scaled qty for display; other types would use instance_quantity
--- This is formalized at the model level as a discrete discrepancy, not evaluated on display
+-- A rate-only counterpart to `testScaledByThree`, for the asymmetry contrast below.
+def testRateScaledByThree : SubscriptionFee :=
+  scaleFee (rateOnly 20) 3
+
+-- Asymmetry: OneTime extracts scaled qty for display; a rate-only fee has no quantity
+-- to extract at all (its own arm of `extractQuantityFromFee` returns `none`) — the two
+-- fee shapes disagree on whether "quantity" survives scaling into something displayable.
 theorem asymmetry_onetime_vs_rate :
-  let onetimeScaled := scaleFee (oneTime 10 2) 3
-  let rateScaled := scaleFee (rate 20) 3
-  extractQuantityFromFee onetimeScaled = some 6 ∧ extractQuantityFromFee rateScaled = none := by
-  simp [scaleFee, extractQuantityFromFee]
+    extractQuantityFromFee testScaledByThree = some 6 ∧
+      extractQuantityFromFee testRateScaledByThree = none := by
+  constructor <;> rfl
 
 -- Concrete witness: if we display OneTime as (extracted_qty) × rate,
 -- we show 6 × 10 instead of 3 × 20, despite both equaling 60 cents
 theorem display_disagreement_same_amount :
-  let onetimeScaled := scaleFee (oneTime 10 2) 3
-  let extractedQty := 6  -- from the fee
-  let instanceQty := 3   -- from AddedComponent::instance_quantity
-  let rate := 10         -- from the fee
-  onetimeAmountCents onetimeScaled = extractedQty * rate ∧
-  onetimeAmountCents onetimeScaled = instanceQty * (rate * 2) := by
-  norm_num
+    onetimeAmountCents testScaledByThree = 6 * 10 ∧
+      onetimeAmountCents testScaledByThree = 3 * (10 * 2) := by
+  constructor <;> rfl
 
 end MeteroidVerify.ScaleFeeDisplayAsymmetry

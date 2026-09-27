@@ -1,4 +1,4 @@
-use crate::pure_core;
+use meteroid_pure_core::pure_core;
 
 /// Model of checkout session expiry boundary condition.
 ///

@@ -507,7 +507,35 @@ lean_file = "proof/MeteroidVerify/ScaleFeeDisplayAsymmetry.lean"
 algebra = "amount_cents = rate * inner_qty * add_on_qty; display_qty_from_fee = inner_qty * add_on_qty (total); instance_qty = add_on_qty (instances only)"
 encoding = "Nat"
 status = "Lean (native)"
-status_reason = "2026-09-27. Display-only asymmetry: scale_fee(OneTime{rate, qty}, add_on_qty) bakes qty into the total (qty*add_on_qty), but proration.rs:275 extracts this total for display instead of using AddedComponent::instance_quantity (used by other types, lines 301-303). Amount is correct (rate*inner_qty*add_on_qty), but display shows 'total_qty × unit_rate' instead of 'instance_qty × per_instance_rate'. Arithmetic verified not customer-facing (invoice generation doesn't scale, amount_cents unchanged); display fields are 'for display' only per ProrationLineItem docstring."
-controls = ["test_amount_is_correct_despite_display_asymmetry", "test_display_shows_total_not_instances", "test_witness_3_instances_2_qty_10_rate (Rust)"]
+status_reason = "lake build green, 2026-09-27 (fixed post-merge: the file as originally pushed did not actually build -- open Fee brought SubscriptionFee into scope but not its own constructors oneTime/rate, which is a different namespace; every unqualified use failed with 'Function expected'/'Invalid pattern' errors the original agent's self-report did not catch. Flattened to one namespace and renamed the rateOnly constructor to avoid colliding with the oneTime constructor's own rate field name, which was the second, subtler cause of rfl failing to reduce even after the scoping fix). Display-only asymmetry: scale_fee(OneTime{rate, qty}, add_on_qty) bakes qty into the total (qty*add_on_qty), but proration.rs:275 extracts this total for display instead of using AddedComponent::instance_quantity (used by other types, lines 301-303). Amount is correct (rate*inner_qty*add_on_qty), but display shows 'total_qty × unit_rate' instead of 'instance_qty × per_instance_rate'. Arithmetic verified not customer-facing (invoice generation doesn't scale, amount_cents unchanged); display fields are 'for display' only per ProrationLineItem docstring."
+controls = ["scaled_quantity_is_total", "amount_is_correct", "asymmetry_onetime_vs_rate", "display_disagreement_same_amount", "test_amount_is_correct_despite_display_asymmetry", "test_display_shows_total_not_instances", "test_witness_3_instances_2_qty_10_rate (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "checkout_session_expiry_buggy"
+module = "meteroid-proof-core::cores::checkout_session_expiry"
+file = "crates/meteroid-proof-core/src/cores/checkout_session_expiry.rs"
+lean_module = "MeteroidVerify.CheckoutSessionExpiry"
+lean_file = "proof/MeteroidVerify/CheckoutSessionExpiry.lean"
+algebra = "the real buggy implementation (domain/checkout_sessions.rs:83): now > expires_at modeled as now <= expires_at on integer timestamps"
+encoding = "Int (microseconds)"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. The CheckoutSession::is_expired() method uses strict inequality > to check expiry. This models the bug as a pure integer comparison. expiry_boundary_bug_concrete_witness/expiry_boundary_correct_denies/expiry_boundary_bug_exists prove the bug exists exactly at the boundary (now=expires_at), allowing checkout completion when the session should be expired. Pre and post-boundary tests (expiry_pre_boundary_both_allow, expiry_post_boundary_both_deny) confirm both implementations agree everywhere except the exact boundary time. Rust side cross-checked with 5 unit tests verifying boundary divergence, pre/post agreement, offset iterations, and a real-world scenario demonstrating the security implication."
+controls = ["expiry_boundary_bug_concrete_witness", "expiry_boundary_correct_denies", "expiry_boundary_bug_exists", "expiry_pre_boundary_both_allow", "expiry_post_boundary_both_deny", "test_expiry_bug_divergence_only_at_boundary (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "checkout_session_expiry_correct"
+module = "meteroid-proof-core::cores::checkout_session_expiry"
+file = "crates/meteroid-proof-core/src/cores/checkout_session_expiry.rs"
+lean_module = "MeteroidVerify.CheckoutSessionExpiry"
+lean_file = "proof/MeteroidVerify/CheckoutSessionExpiry.lean"
+algebra = "the correct guard: now < expires_at (inclusive check, standard expiry semantics)"
+encoding = "Int (microseconds)"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Reference implementation modeling the correct expiry guard. The standard semantic for 'expires at time T' is that the session is valid during [created_at, T), i.e., valid up to but not including T, requiring now >= expires_at (i.e., now < expires_at under the negation). Contrasted with checkout_session_expiry_buggy to prove the bug is confined to exactly one time: the expiration instant itself."
+controls = ["expiry_boundary_correct_denies", "expiry_pre_boundary_both_allow", "expiry_post_boundary_both_deny", "test_expiry_real_world_window (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""

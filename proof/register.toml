@@ -441,3 +441,31 @@ status_reason = "lake build green, 2026-09-27. The correct reference implementat
 controls = ["stale_after_upgrade_witness", "agree_before_any_slot_change (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "entitlement_enabled_real"
+module = "meteroid-proof-core::cores::entitlement_grace_period"
+file = "crates/meteroid-proof-core/src/cores/entitlement_grace_period.rs"
+lean_module = "MeteroidVerify.EntitlementGracePeriod"
+lean_file = "proof/MeteroidVerify/EntitlementGracePeriod.lean"
+algebra = "verbatim (entitlements.rs:320): consumed < limit, grace_period_pct never read"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. CONFIRMED bug: domain/entitlements.rs:41-46's own doc comment states the intended semantics (limit plus optional grace_period_pct); build_metered_entitlement's enabled computation never references the field at all. Grepped every OverageBehavior::Block construction site (~30, repositories/entitlements.rs): all pass None except one test fixture (entitlements.rs:527, Some(10)) -- checked what it exercises: build_unavailable_metered_entitlement, a different function that takes enabled as a direct parameter, not the usage-driven computation. No test ever exercises grace_period_pct through build_metered_entitlement. grace_window_witness proves a concrete divergence (105 consumed, limit 100, 10% grace: real code blocks, documented behavior would allow) by decide."
+controls = ["grace_window_witness", "agrees_with_no_grace_period", "grace_window_witness (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "entitlement_enabled_intended"
+module = "meteroid-proof-core::cores::entitlement_grace_period"
+file = "crates/meteroid-proof-core/src/cores/entitlement_grace_period.rs"
+lean_module = "MeteroidVerify.EntitlementGracePeriod"
+lean_file = "proof/MeteroidVerify/EntitlementGracePeriod.lean"
+algebra = "the documented intended formula (domain/entitlements.rs:43-44): consumed < limit * (1 + grace_pct/100), cross-multiplied by 100"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Reference implementation of the documented behavior, used to demonstrate the gap in entitlement_enabled_real -- not itself claimed to be exactly how a fix should be coded (rounding/precision at the percentage boundary not addressed here)."
+controls = ["grace_window_witness", "agrees_with_no_grace_period (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

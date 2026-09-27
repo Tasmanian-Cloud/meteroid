@@ -606,6 +606,41 @@ reports the original 5-slot MRR).
 `initial_slots`. Real invoices are computed correctly; the staleness is
 confined to the internal MRR metric.
 
+## `grace_period_pct` is documented, never implemented
+
+Scouted `entitlements.rs` (feature-access decisions, untouched territory —
+not billing/invoicing) after the MRR-staleness thread. `domain/entitlements.rs:41-46`'s
+own doc comment states the intended semantics of `OverageBehavior::Block
+{ grace_period_pct: Option<u32> }`: "requests are rejected once the limit
+(plus optional `grace_period_pct`) is reached." The only function that
+computes whether a metered entitlement is actually `enabled` from real
+usage, `services/entitlements.rs::build_metered_entitlement` (`:317-337`):
+
+```rust
+let enabled = meta.enabled && meta.limit.is_none_or(|l| consumed < l);
+```
+
+never references `grace_period_pct` — it isn't even in scope at that point
+in the function. Grepped every `OverageBehavior::Block` construction site
+across the codebase (`repositories/entitlements.rs`, ~30 occurrences): all
+pass `grace_period_pct: None`, except one — `services/entitlements.rs:527`'s
+own test, `Some(10)`. Checked what that test exercises before assuming it
+covered the gap: it calls `build_unavailable_metered_entitlement`, a
+DIFFERENT function that takes `enabled: bool` as a direct parameter (the
+"metric row deleted" preservation path, no usage arithmetic at all) — not
+`build_metered_entitlement`, the one place the field would need to matter.
+No test anywhere exercises `grace_period_pct` through the actual
+enable/disable computation.
+
+This is the cleanest instance this session of a documented feature with
+zero effect: a customer configured for a 10% grace allowance would be
+blocked the instant `consumed >= limit`, identically to no grace period at
+all — the field round-trips through config/serialization/tests but never
+reaches the decision that's supposed to use it.
+`EntitlementGracePeriod.lean`'s `grace_window_witness` proves the concrete
+divergence (limit 100, 10% grace, 105 consumed: real code blocks, the
+documented behavior would still allow it).
+
 ## `FloatError.lean`'s bound also covers a second, real invoice-line call site
 
 Scouted `invoice_lines/component.rs::prorate` (`:717-724`), the function

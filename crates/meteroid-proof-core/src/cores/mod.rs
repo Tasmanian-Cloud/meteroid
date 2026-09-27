@@ -4,6 +4,7 @@ pub mod credit_note_race;
 pub mod currency_conversion;
 pub mod discount;
 pub mod dunning_schedule;
+pub mod entitlement_grace_period;
 pub mod invoice_amount_due;
 pub mod metering_agg;
 pub mod mrr_slot_staleness;

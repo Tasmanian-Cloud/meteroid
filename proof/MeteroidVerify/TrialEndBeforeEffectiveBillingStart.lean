@@ -1,84 +1,106 @@
--- Bug #17: Migration mode free trial ending before effective billing start
---
--- In process.rs, when a subscription with a free trial is created in migration mode
--- (skip_past_invoices=true) and the subscription end_date is during the trial period,
--- the code computes effective_billing_start as start_date + trial_days.
---
--- Then it calls find_period_containing_date(effective_billing_start, end_date, ...),
--- but end_date < effective_billing_start, so find_period_containing_date returns
--- the first period at effective_billing_start. The result is:
--- - current_period_start = effective_billing_start
--- - current_period_end = end_date
---
--- This creates a backwards period where start > end.
---
--- Concrete example:
--- - start_date = 2024-01-01
--- - trial_days = 10
--- - subscription.end_date = 2024-01-05 (during trial)
--- - now = 2024-02-01
--- - billing_day_anchor = 1
---
--- Expected: period should be [2024-01-01, 2024-01-05]
--- Actual: period is [2024-01-11, 2024-01-05] (backwards!)
+/-!
+# meteroid / TrialEndBeforeEffectiveBillingStart — migration mode can produce a backwards period
 
-import Std
-import Lean
+`services/subscriptions/insert/process.rs`'s migration-mode branch
+(`skip_past_invoices = true`, `:340-388`) handles a subscription whose
+`end_date` is already in the past (`:363-364`,
+`end_date < now.date()`) by computing its final period directly, without
+cycle-worker involvement.
 
-def ConcreteDate : Type := Nat
+For a subscription with a free trial, `effective_billing_start` is computed
+as `billing_start_date + trial_days` (`:344-347`). This value — not
+`billing_start_date` itself — is passed as the anchor into
+`find_period_containing_date(effective_billing_start, end_date, ..)`
+(`:374-379`, `utils/periods.rs:187-227`). That function's own first branch
+(`periods.rs:193-199`, `if target_date < billing_start_date { ... }`)
+degrades gracefully when `end_date < effective_billing_start` — but
+`process.rs` doesn't use the period `find_period_containing_date` actually
+returns for the END boundary: it sets `current_period_start =
+last_period.start` (`:384`, which resolves to `effective_billing_start` in
+this branch) but **independently overwrites** `current_period_end =
+Some(end_date)` (`:385`) with the raw `end_date`, not
+`last_period.end`.
 
-def dateAdd (d : ConcreteDate) (days : Nat) : ConcreteDate := d + days
-def dateBeforeLess (d1 d2 : ConcreteDate) : Prop := d1 < d2
+**The bug**: when a migrated subscription's `end_date` falls DURING what
+would have been its free trial (`end_date < effective_billing_start`), the
+resulting period is `[effective_billing_start, end_date]` with
+`effective_billing_start > end_date` — a backwards period, `start > end`.
+This is not a contrived edge case: any historical subscription being
+migrated in that churned or was cancelled before its trial completed hits
+this branch (`skip_past_invoices` exists specifically for backdated/migrated
+subscription import).
 
-structure PeriodBounds where
-  start : ConcreteDate
-  end_ : ConcreteDate
+**What is modeled:** the two date values `process.rs` actually sets
+(`effective_billing_start`, `end_date`) and the ordering violation between
+them, as exact `Int` day-offsets — not `find_period_containing_date`'s
+own internal branching, which is a correctly-defended function; the bug is
+entirely in how `process.rs` uses two of its outputs inconsistently
+(the START from one call, the END raw and unrelated to it).
 
-def isValidPeriod (p : PeriodBounds) : Prop := p.start < p.end_
+Pure Lean core: no Mathlib, no Batteries, no `sorry`/`admit`/`axiom`/
+`native_decide`.
+-/
 
-def trialEndsBefore billStart trialDays endDate : Prop :=
-  dateBeforeLess endDate (dateAdd billStart trialDays)
+namespace MeteroidVerify
 
--- Theorem: When a migration-mode free trial subscription ends during the trial,
--- the period computation produces a backwards period (start >= end_).
-theorem migration_free_trial_period_backwards :
-    ∀ billStart trialDays endDate : Nat,
-    trialEndsBefore billStart trialDays endDate →
-    ¬isValidPeriod ⟨dateAdd billStart trialDays, endDate⟩ := by
-  intro billStart trialDays endDate h
-  unfold trialEndsBefore dateAdd at h
-  unfold isValidPeriod
-  simp at h ⊢
+/-- `effective_billing_start` (`process.rs:344-347`): `billing_start_date + trial_days`. -/
+def effectiveBillingStart (billingStart trialDays : Int) : Int :=
+  billingStart + trialDays
+
+/-- The period `process.rs` actually constructs in the migration-mode,
+    already-ended branch (`:384-385`): start from the trial-adjusted
+    anchor, end from the raw `end_date` — two independently-sourced
+    values, never checked against each other. -/
+def migrationModePeriod (billingStart trialDays endDate : Int) : Int × Int :=
+  (effectiveBillingStart billingStart trialDays, endDate)
+
+/-- A period is well-formed when its start doesn't come after its end. -/
+def isBackwards (period : Int × Int) : Prop :=
+  period.fst > period.snd
+
+/-- **The bug.** Whenever a migrated subscription's `end_date` falls during
+    what would have been its free trial, the resulting period is
+    backwards — proved for ALL such inputs, not just the witness below. -/
+theorem migration_free_trial_period_backwards
+    (billingStart trialDays endDate : Int)
+    (h : endDate < effectiveBillingStart billingStart trialDays) :
+    isBackwards (migrationModePeriod billingStart trialDays endDate) := by
+  unfold isBackwards migrationModePeriod
+  simp only
   omega
 
--- Concrete instance: The bug witness from process.rs
+/-- Concrete witness matching the real scenario: billing started day 1,
+    a 10-day trial (`effective_billing_start` = day 11), but the
+    subscription's own `end_date` was day 5 — cancelled 6 days into what
+    would have been a 10-day trial. Real code computes the period
+    `[11, 5]`, start after end. -/
 theorem concrete_witness_migration_trial_ends_during :
-    let billStart : Nat := 1  -- 2024-01-01 as day 1
-    let trialDays : Nat := 10
-    let endDate : Nat := 5    -- 2024-01-05
-    let effectiveBillStart := dateAdd billStart trialDays
-    ¬isValidPeriod ⟨effectiveBillStart, endDate⟩ := by
-  unfold isValidPeriod dateAdd
-  norm_num
+    isBackwards (migrationModePeriod 1 10 5) := by
+  unfold isBackwards migrationModePeriod effectiveBillingStart
+  decide
 
--- The root cause: using effective_billing_start (post-trial) to compute
--- a period that should anchor to billing_start_date (pre-trial) when
--- end_date is during the trial.
-def incorrectPeriodStart (billStart trialDays : Nat) : Nat :=
-  dateAdd billStart trialDays  -- Should be billStart when end_date < trial_end
-
-def correctPeriodStart (billStart endDate trialDays : Nat) : Nat :=
-  if dateBeforeLess endDate (dateAdd billStart trialDays) then
-    billStart  -- Use billing_start_date, not effective_billing_start
+/-- The fix's shape: anchor the period at `billing_start_date` (not the
+    trial-adjusted `effective_billing_start`) whenever `end_date` falls
+    before the trial would have ended — matching what
+    `find_period_containing_date`'s own degenerate branch already
+    computes for its START boundary; `process.rs` just needs to use it
+    for the END boundary too instead of the raw `end_date` unconditionally. -/
+def correctedPeriodStart (billingStart trialDays endDate : Int) : Int :=
+  if endDate < effectiveBillingStart billingStart trialDays then
+    billingStart
   else
-    dateAdd billStart trialDays
+    effectiveBillingStart billingStart trialDays
 
--- The correct behavior always produces a valid period
-theorem correct_computation_maintains_period_validity :
-    ∀ billStart trialDays endDate : Nat,
-    endDate > 0 →
-    dateBeforeLess billStart endDate →
-    isValidPeriod ⟨correctPeriodStart billStart endDate trialDays, endDate⟩ := by
-  intro billStart trialDays endDate _hpos _hbefore
-  unfold correctPeriodStart isValidPeriod dateAdd
-  split <;> omega
+/-- The corrected start is never after `end_date`, given `end_date` is
+    itself after `billing_start_date` (a subscription can't end before it
+    starts) — so the corrected period is never backwards. -/
+theorem corrected_start_never_backwards
+    (billingStart trialDays endDate : Int)
+    (hstarted : billingStart ≤ endDate) :
+    correctedPeriodStart billingStart trialDays endDate ≤ endDate := by
+  unfold correctedPeriodStart
+  split
+  · exact hstarted
+  · omega
+
+end MeteroidVerify

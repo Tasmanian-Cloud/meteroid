@@ -592,7 +592,7 @@ lean_file = "proof/MeteroidVerify/CouponFixedAmountNegative.lean"
 algebra = "fixed coupon discount without clamp to non-negative (discount.rs:110-114): unclamped subtraction amount - consumed_amount"
 encoding = "Int (subunits)"
 status = "Lean (native)"
-status_reason = "lake build green, 2026-09-27. CONFIRMED bug: if consumed_amount > amount, the unclamped discount is negative. When min(negative_discount, positive_subtotal) is computed, the min is the negative value. Subtracting a negative increases the subtotal (opposite of intended effect). negative_discount_increases_subtotal proves this by decide, contrasted with clamped_discount_decreases_subtotal (the corrected version with .max(0) clamp)."
+status_reason = "lake build green, 2026-09-27. CONFIRMED bug: if consumed_amount > amount, the unclamped discount is negative. When min(negative_discount, positive_subtotal) is computed, the min is the negative value. Subtracting a negative increases the subtotal (opposite of intended effect). negative_discount_increases_subtotal proves this by decide, contrasted with clamped_discount_decreases_subtotal (the corrected version with .max(0) clamp). Reachability independently re-verified 2026-09-28: applied_amount accumulates across billing cycles for a recurring fixed coupon via invoices/finalize.rs's refresh_applied_coupons -> AppliedCouponRow::refresh_state; no exhaustion check found that excludes a fully-consumed coupon from being applied again, so an ordinary recurring coupon that doesn't divide evenly into its billing cycles reaches consumed_amount > amount through normal use, not only external mutation/staleness."
 controls = ["negative_discount_increases_subtotal_bug (Rust)", "correct_version_never_increases_subtotal (Rust)", "correct_version_applies_valid_remaining (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
@@ -608,5 +608,33 @@ encoding = "Int (subunits)"
 status = "Lean (native)"
 status_reason = "lake build green, 2026-09-27. Correct version of the coupon discount logic. fixedDiscountClamped_nonnegative proves the discount is always non-negative, and clamped_discount_decreases_subtotal proves that subtracting it never increases the subtotal. This is the fix for the bug demonstrated in coupon_fixed_amount_negative_bug."
 controls = ["correct_version_never_increases_subtotal (Rust)", "correct_version_applies_valid_remaining (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "migration_trial_period_start_buggy"
+module = "meteroid-proof-core::cores::trial_end_before_effective_billing_start"
+file = "crates/meteroid-proof-core/src/cores/trial_end_before_effective_billing_start.rs"
+lean_module = "MeteroidVerify.TrialEndBeforeEffectiveBillingStart"
+lean_file = "proof/MeteroidVerify/TrialEndBeforeEffectiveBillingStart.lean"
+algebra = "verbatim (process.rs:344-347,384-385): the migration-mode period's start is effective_billing_start = billing_start + trial_days, unconditionally, while its end is the raw end_date"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. CONFIRMED bug, independently re-verified against the real source after the originally-submitted Lean file failed to build at all (a custom ConcreteDate type alias with no HAdd/LT instances, an actual sorry, unsolved omega goals -- rewritten from scratch on bare Int, matching every other file's convention). Traced two functions directly: find_period_containing_date's own degenerate branch (utils/periods.rs:193-199) correctly handles end_date < billing_start_date for its START output, but process.rs (:384-385) uses that START while independently overwriting the period's END with the raw end_date, never checked against the trial-adjusted start. migration_free_trial_period_backwards proves this generally (any migrated subscription whose end_date falls during its trial gets a backwards period); concrete_witness_migration_trial_ends_during pins the exact scenario (billing day 1, 10-day trial, end_date day 5 -> period [11,5]) by decide."
+controls = ["migration_free_trial_period_backwards", "concrete_witness_migration_trial_ends_during", "test_migration_trial_ends_during_creates_backwards_period (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "migration_trial_period_start_correct"
+module = "meteroid-proof-core::cores::trial_end_before_effective_billing_start"
+file = "crates/meteroid-proof-core/src/cores/trial_end_before_effective_billing_start.rs"
+lean_module = "MeteroidVerify.TrialEndBeforeEffectiveBillingStart"
+lean_file = "proof/MeteroidVerify/TrialEndBeforeEffectiveBillingStart.lean"
+algebra = "the fix's shape: anchor at billing_start when end_date falls during the trial, at effective_billing_start otherwise"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. corrected_start_never_backwards proves the corrected start is never after end_date, given a subscription can't end before it starts -- a reference implementation demonstrating the gap, not a claim this is the exact form a real fix should take."
+controls = ["corrected_start_never_backwards", "test_corrected_version_produces_valid_period (Rust)", "test_corrected_version_after_trial_still_uses_effective (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""

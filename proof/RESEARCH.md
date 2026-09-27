@@ -1109,3 +1109,51 @@ invoice), `EntitlementGracePeriod` (documented never implemented),
 `SlotBounds` (check correct, one path skips it), `ComponentMatching`
 (double-match via product_id non-uniqueness), `CheckoutSessionExpiry` (boundary
 off-by-one), `QuoteExpiry` (missing expiry validation), `ScaleFeeDisplayAsymmetry` (OneTime display only).
+
+## Historical-rate caching: 5-minute staleness window, cache invalidation never called
+
+Scouted `repositories/historical_rates.rs` (exchange rate caching for currency conversion) after completing tax findings.
+
+**Cache structure:**
+- `get_historical_rate_from_usd_by_date_cached` uses `#[cached]` macro with `size=10, time=300` (5-minute TTL), keyed by `NaiveDate`
+- `get_latest_rate_from_usd_cached` uses `#[once]` macro with `time=300` (5-minute TTL)
+- Both return `StoreResult<Option<HistoricalRatesFromUsd>>`
+
+**Staleness window (traced, not machine-checkable):**
+1. Rate for date X is queried at time T1, cached with expiry T1+300s
+2. New rate for date X is written to DB at time T2 (where T1 < T2 < T1+300)
+3. Any read at time T3 (where T2 < T3 < T1+300) returns stale cached value, not fresh DB value
+4. This is a TOCTOU-adjacent pattern (same shape as credit-note race), but timing-dependent rather than data-flow
+
+This is not a code bug (TTL caches are intentional design), but a cache coherency window. The staleness window affects:
+- `get_historical_rate` (currency conversion, lines 67-76)
+- `latest_rate` (both use cases include coupon/amendment paths that convert between customer currency and subscription currency)
+- Both could apply a stale exchange rate for up to 5 minutes after a new rate is inserted
+
+**Cache invalidation orphaned:** A test-only function `clear_historical_rates_cache()` (lines 180-190) was created to clear both caches, but grepped the entire codebase and found it is **never called** — not in any test, not anywhere. This suggests:
+- The cache was added for testing but the invalidation path was never integrated
+- Tests creating fresh exchange rates will be shadowed by stale cached values from prior tests
+- No automatic invalidation when new rates are inserted (production or testing)
+
+Not formalized in Lean (timing properties are not decidable arithmetic); documented as a traced coordination gap: the invalidation mechanism exists but is disconnected.
+
+## Tax jurisdiction/rate lookup: logic traced, found correct
+
+Scouted `meteroid-tax/src/shared.rs` (tax rate resolution by jurisdiction and exemption status) after historical rates.
+
+**Precedence ladder confirmed correct:**
+1. **Customer-wide exemption** (line 27-64): If customer is `Exempt`, all lines are exempt unless they're `nontaxable`-category (which are always exempt). If customer is `ReverseCharge`, all lines are reverse-charged unless they're `nontaxable`. ✓
+2. **Line-level exemption** (lines 94-96): Non-taxable products always exempt, no override possible. ✓
+3. **Seller registration check** (lines 100-102): If invoicing entity has no country, all lines exempt. ✓
+4. **Override rules** (lines 106-108, via `resolve_override`): Merchant-authored per-destination rates, matched by country/region specificity. ✓
+5. **Engine rate** (line 111, via `resolve_engine_rate`): Statutory or manual rates. ✓
+
+**Override rule matching logic traced:**
+- Rules filtered by destination country/region (lines 134-151)
+- Sorted by specificity (region > country > wildcard, lines 154-167)
+- Most-specific rule applied (line 170, `.first()`)
+- If no rules match, falls through to engine rate (line 189) ✓
+
+**Edge case: duplicate rules with equal specificity:** When two rules have the SAME specificity (e.g., two region-specific rules for country=US, region=CA), sort is stable so original order is preserved, and code takes `.first()`. This is deterministic but undocumented tie-breaking behavior. Checked: no bugs observed in this path (takes first match consistently); noted as a design choice rather than a bug.
+
+**No bugs found in tax jurisdiction/rate resolution logic.** All checks traced end-to-end; precedence ladder enforced correctly; destination-address matching is correct (rules with explicit region only match destinations with that region); customer-wide exemption correctly outranks line-level overrides per design; engine-rate fallback reachable only if no override applies.

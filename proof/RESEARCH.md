@@ -1057,6 +1057,43 @@ amount stays the line total" — so the asymmetry affects user-facing UI strings
 ("3 × $20" vs "6 × $10") but not billing amounts. The actual charge is still
 correct: `(rate * inner_qty * instance_qty * factor).round()`.
 
+## Basis retrofit audit (2026-09-27): five files against LedgerFold and IntervalBasis
+
+With the two basis modules live (`LedgerFold.lean`, `IntervalBasis.lean`) and
+`PaymentReversal.lean` retrofitted as the pilot, audited the five candidate
+files mentioned in earlier sections for genuine fits:
+
+**`DunningSchedule.lean` — Does NOT fit either basis.** A lookup table on
+`Nat` subtraction: pattern-match on `failedAttempts - 1` returning schedules
+`[3, 5, 7] → none`. This is array indexing, not stream folding (LedgerFold) or
+bounded-interval composition (IntervalBasis). Left as direct `decide` proofs.
+
+**`CreditNoteRace.lean` — Does NOT fit either basis.** A race-condition witness
+exhibiting a concurrent TOCTOU bug in a single guard `total ≤ amountDue`. Not a
+stream fold, not a composition of clamping/max/min. The defect lies in the guard
+never re-reading after acquiring a lock, a data-flow property, not interval
+arithmetic. Left as `decide`-checked example values.
+
+**`CurrencyConversion.lean` — Does NOT fit either basis.** FX-rate scaling
+formulas: real (`amountCents * rate`) vs intended (`amountCents * rate * 10^toExp /
+10^fromExp`). This is multiplication-by-ratio arithmetic with exponent-scaling,
+not a ledger fold or a composition of clamping operations. Left as `omega` proofs.
+
+**`SubscriptionStatus.lean` — Does NOT fit either basis.** Purely documentation:
+a state-transition graph with no centralized guard function in the codebase to
+formalize against. No Lean theorem here, only a traced design. Left as module doc.
+
+**`EntitlementGracePeriod.lean` — Does NOT fit either basis.** Threshold-comparison
+bug: real (`consumed < limit`) vs intended (`100 * consumed < limit * (100 + gracePct)`).
+This is an inequality check with a grace window, not a stream fold or a combination of
+clamp/max/min operations. Left as `omega` proofs.
+
+**Conclusion:** None of the five files match either basis pattern. Forcing any of
+these into a `LedgerFold` or `IntervalBasis` shape would require contriving a
+"basis instance" that isn't real to the actual computation or domain semantics
+(e.g. falsely claiming an inequality is "really" a clamped value). Honest audit
+means leaving all five as is.
+
 ## Coverage so far
 
 In order of finding: `Metering` dedup (no-op guard), `TierPricing` block_size

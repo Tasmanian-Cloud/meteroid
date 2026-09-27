@@ -1455,3 +1455,157 @@ an opaque, correct rounding function per `TaxRounding.lean`). Formalized as
 (proves the bug exists) and `clamped_discount_decreases_subtotal` (proves the
 fix is correct) via `decide`. Both counterparts exist in
 `coupon_fixed_amount_negative.rs` with concrete witness tests.
+
+## Removal-side audit of bug #11: spurious credits from component misclassification
+
+Followed up on bug #11's (`ComponentMatching.lean`) matching-side double-match
+by auditing what happens to components that fall into the `removed` classification
+(plan_change.rs:1599-1608) due to the bug, and whether they can be double-removed
+or cause MRR staleness.
+
+**The removal-side pathway:** When a component is misclassified as "removed"
+due to bug #11's `.find()` double-match:
+
+1. It enters the `removed` vector (line 1601-1606) with its current fee and period
+2. That removed component is passed to `calculate_proration` (line 323-331), which
+   credits it for its unused remaining time (proration.rs:233-244)
+3. The component is also added to the `component_close` list (reconstructed from the
+   `matched_current_ids` HashSet), marking it for database closure via
+   `close_components` (repositories/subscriptions/slots.rs:665, diesel-models/src/query/
+   subscription_components.rs:251-276)
+
+**Database-level safety for double-removal:** The `close_components` query itself
+(line 265) includes `.filter(sc_dsl::effective_to.is_null())`, so if a component is
+already closed, a second `close_components` call on it is a silent no-op — the filter
+excludes already-closed rows, preventing duplicate closure or spurious re-credits.
+This safety applies to both:
+- A component closed once by a buggy plan change then accidentally closed again by
+  an amendment's explicit `component_changes.removed` (amendment.rs:1640-1659 iterates
+  through explicit removals and adds them to `component_close`, but would only execute
+  if the amendment's `component_by_id` lookup succeeds — and `component_by_id` is built
+  from `list_subscription_components_by_subscription`, which filters by `effective_to IS NULL`,
+  so a component already closed won't be in the map, and the amendment will error before
+  attempting to close it again)
+- A component closed once due to bug #11, then later appearing in a second operation's
+  removal processing (the second operation's subscription-detail fetch will exclude it)
+
+**MRR correctness after removal:** When MRR is recalculated after a plan change
+(plan_change.rs:972-979), it calls `calculate_components_mrr_with_slots`, which operates
+on `sub_details.price_components`. This comes from `list_subscription_components_by_subscription`
+(repositories/subscriptions/mod.rs:229-236), which enforces `.filter(effective_to IS NULL)`.
+So a component closed (whether correctly or due to bug #11) will NOT appear in the MRR
+calculation — it is correctly excluded from future MRR. However, the MRR *delta* calculation
+(new_mrr - old_mrr, line 988-995) reflects the artificial closure: if a component should
+have been matched (kept on subscription) but was closed due to bug #11, the old_mrr includes
+it (captured before the plan change), but the new_mrr does not (after closure), so the
+delta is artificially negative (a spurious churn/contraction signal). This is a secondary,
+derived effect of the primary bug #11 (the spurious removal classification), not an independent
+MRR-staleness issue like bug #8 (which reads the seed instead of the live ledger).
+
+**Formalized in `RemovalSideSpuriousCredit.lean`:** Models the removal classification
+logic and credit computation, showing that when bug #11 causes a component to be
+misclassified as removed, a credit is generated for its full fee (the prorated amount,
+but the factor is applied consistently). Contrasts with the correct behavior (both
+components matched, neither removed, no spurious credit). Rust companion
+(`removal_side_spurious_credit.rs`) cross-checks the classification logic via concrete
+test cases, including the scenario with multiple products to verify the spurious removal
+doesn't confuse products.
+
+**No new bugs found in the removal pathway itself.** The removal classification,
+proration calculation, database closure, and MRR recalculation are all correct in their
+internal logic — the only defect is the input to the removal classification
+(bug #11's matching), which propagates to the credit side. Once a component is
+(rightly or wrongly) classified as removed, the downstream logic is sound.
+
+## Termination refund logic audit (2026-09-28)
+
+Audited `services/subscriptions/terminate.rs` for refund/credit computation when
+a subscription is terminated mid-cycle, tracing the interaction with:
+- Bug #4/#15 (date validation within billing period)
+- Bug #7 (currency conversion exponent mismatch)
+- Credit-note capping by invoice `amount_due`
+
+**Date validation gap investigated:** `terminate_subscription` (line 23) takes a `date`
+parameter with **no validation** against the subscription's current `current_period_start`
+and `current_period_end`. Similar to bug #15 (amendment.rs), this could allow termination
+dates outside the current period. However, upon tracing the downstream invoice computation
+(`invoice_lines.rs:879-894`), the termination date gets written to `current_period_start`,
+and `current_period_end` is cleared. This combination sets `is_completed = true`, which
+makes `calculate_component_period_for_invoice_date` return `None` for advance billing
+(line 40-41 of utils/periods.rs). For terminations in the first cycle, no advance
+billing occurs; for subsequent cycles, arrear billing is computed. **Unlike amendment.rs
+(bug #15), termination doesn't directly apply a proration factor to compute a refund
+for the current partial period — it simply ceases to bill advance charges.** Therefore,
+the out-of-period termination date vulnerability exists in the code, but its impact is
+effectively mitigated by the period handling logic (not charged/credited for a future
+advance period if termination is in the past).
+
+**Currency conversion bug #7 recurrence confirmed (bug #19):** Lines 216-228 of
+terminate.rs, specifically line 223-225:
+```rust
+let rate_decimal = Decimal::from_f32(rate).unwrap_or(Decimal::ONE);
+Decimal::from(mrr_delta) / rate_decimal
+```
+performs unit-agnostic MRR-to-USD conversion, identical to bug #7 documented in
+`customer_balance.rs`. The MRR delta is in the subscription currency's smallest unit
+(e.g., yen for JPY, exponent 0), but divided by an exchange rate without exponent
+normalization. For JPY → USD (exponent delta = 2), this produces a 100× error in MRR
+tracking. Formalized as `TerminationCurrencyConversion.lean` and its Rust companion.
+
+**Credit-note capping interaction (NOT a bug):** Termination creates an invoice via
+`bill_subscription_tx`, which goes through `finalize_invoice_tx` (finalize.rs).
+That function applies credits via `CustomerBalance::update` (lines 122-129) and
+posts negative-total invoices as credits (lines 109-130). The actual refund capping
+is handled by the invoice line computation (no line can exceed what the subscription
+paid), and the credit application is guarded by the existing `applied_credits` logic
+in invoice finalization. No separate vulnerability found here.
+
+## Trial-end-date arithmetic: `insert/process.rs` vs `period_transitions.rs` consistency audit
+
+Investigated whether the two code paths responsible for trial lifecycle
+(subscription creation via `subscriptions/insert/process.rs`, and trial
+termination via `lifecycle/period_transitions.rs`) use the same formula
+for computing when a trial ends, or independently recompute/derive it in
+ways that could disagree — the "two independent implementations of the
+same concept" shape this session keeps finding real bugs in.
+
+**Finding: same formula, read from shared database state — no independent
+recomputation that could diverge.**
+
+Traced both paths completely:
+
+1. **`subscriptions/insert/process.rs` (trial initiation)**: computes trial
+   end date via `current_period_end = billing_start_date +
+   trial_duration_days` and stores it in the subscription row. Used in
+   three contexts: OnStart non-migrated free trial, OnStart migrated free
+   trial (still active), and OnCheckout free trial.
+
+2. **`lifecycle/period_transitions.rs` (trial termination)**: two distinct
+   paths:
+   - `end_trial()`: never reads `trial_duration` or independently
+     computes a trial-end date. Instead it reads the STORED
+     `subscription.current_period_end` (the value `insert/process.rs`
+     wrote) and uses it as the start of the next billing period directly
+     — no recomputation.
+   - `activate_subscription()` (future-dated subscriptions): reads
+     `subscription.current_period_end` as `new_period_start`, then
+     computes `new_period_end = new_period_start + trial_duration` —
+     exactly what `insert/process.rs` would have computed had the
+     subscription been OnStart instead. Consistent by construction.
+
+3. **`end_date` constraint handling**: `period_transitions.rs` DOES apply
+   a corrective override when a subscription ends before the next
+   period's end (sets `new_period_end = end_date`). This constraint is
+   NOT present in `insert/process.rs`'s trial-setup paths, so
+   `period_transitions.rs` is repairing a gap `insert/process.rs` leaves
+   — related to bug #18 (migration-mode subscriptions whose `end_date`
+   falls during the trial), but the trial-end-date FORMULA itself is not
+   divergent between the two files.
+
+**Conclusion**: no independent recomputation found; both paths are
+mediated through the same database column. Neither path independently
+validates the stored value is consistent with `trial_duration`, so if
+`insert/process.rs` stores an inconsistent value (bug #18's exact
+scenario), `period_transitions.rs` perpetuates it rather than catching or
+correcting it — but the formulas themselves agree.
+

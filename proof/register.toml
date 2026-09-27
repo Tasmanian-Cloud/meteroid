@@ -115,6 +115,20 @@ proof_repo_commit = ""
 artifact_sha256 = ""
 
 [[core]]
+function = "classify_as_removed"
+module = "meteroid-proof-core::cores::removal_side_spurious_credit"
+file = "crates/meteroid-proof-core/src/cores/removal_side_spurious_credit.rs"
+lean_module = "MeteroidVerify.RemovalSideSpuriousCredit"
+lean_file = "proof/MeteroidVerify/RemovalSideSpuriousCredit.lean"
+algebra = "the removal classification (plan_change.rs:1599-1608): any current component NOT in the matched_ids set is added to removed"
+encoding = "Nat triples (id, productId, fee), List"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Audited the removal-side consequence of bug #11: when .find() double-matches the first component of a shared product, the second component (which should also be matched) falls into removed and gets credited for its unused time. spurious_removal_from_double_match proves component 200 (product=1, matching the second target) is misclassified as removed due to double-match of component 100 (first target, same product). spurious_credit_generated/buggy_removal_causes_spurious_credit prove that a $100 credit is issued for the spuriously-removed component. Database-level safety prevents double-removal (close_components filters by effective_to IS NULL), and closed components don't affect MRR (list_subscription_components_by_subscription excludes them). No new bugs found in removal pathway itself — the defect is entirely in the matching input."
+controls = ["spurious_removal_from_double_match", "spurious_credit_generated", "buggy_removal_causes_spurious_credit", "test_spurious_removal_from_double_match (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
 function = "settled_sum"
 module = "meteroid-proof-core::cores::invoice_amount_due"
 file = "crates/meteroid-proof-core/src/cores/invoice_amount_due.rs"
@@ -636,5 +650,89 @@ encoding = "Int"
 status = "Lean (native)"
 status_reason = "lake build green, 2026-09-28. corrected_start_never_backwards proves the corrected start is never after end_date, given a subscription can't end before it starts -- a reference implementation demonstrating the gap, not a claim this is the exact form a real fix should take."
 controls = ["corrected_start_never_backwards", "test_corrected_version_produces_valid_period (Rust)", "test_corrected_version_after_trial_still_uses_effective (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "checkout_preview_validation_passes"
+module = "meteroid-proof-core::cores::checkout_preview_mismatch"
+file = "crates/meteroid-proof-core/src/cores/checkout_preview_mismatch.rs"
+lean_module = "MeteroidVerify.CheckoutPreviewMismatch"
+lean_file = "proof/MeteroidVerify/CheckoutPreviewMismatch.lean"
+algebra = "verbatim preview validation (edge.rs:2220): |amount_shown - confirmation| ≤ 1"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28 (the originally-submitted Lean file used `lemma` and `norm_num`, neither available in pure Lean 4 core without Mathlib -- rewritten on `theorem`/`decide`, matching this package's convention, before independently re-verifying it builds). Traced the complete flow directly: checkout_preview.rs/edge.rs/bill.rs/draft.rs. Preview computes on a virtual subscription and validates with a 1-cent tolerance (edge.rs:2220); billing re-fetches fresh subscription data from the database and validates for an exact match (bill.rs:219) -- no guard re-checks consistency between the two compute_invoice calls. bug_is_real proves the concrete witness (shown=10000, confirmed=10000: preview passes; actual_charge=12000: billing fails) by decide."
+controls = ["bug_is_real", "checkout_preview_validation_passes (Rust)", "checkout_billing_validation_passes (Rust)", "mismatch_possible (Rust)", "bug_scenario_witnessed (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "checkout_billing_validation_passes"
+module = "meteroid-proof-core::cores::checkout_preview_mismatch"
+file = "crates/meteroid-proof-core/src/cores/checkout_preview_mismatch.rs"
+lean_module = "MeteroidVerify.CheckoutPreviewMismatch"
+lean_file = "proof/MeteroidVerify/CheckoutPreviewMismatch.lean"
+algebra = "verbatim billing validation (bill.rs:219): amount_actual == confirmation, no tolerance"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. The exact-match gate contrasted with previewValidationPasses's 1-cent tolerance -- bug_is_real proves the two gates can disagree on the same confirmed amount."
+controls = ["bug_is_real", "billing_validation_requires_exact_match (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "mismatch_possible"
+module = "meteroid-proof-core::cores::checkout_preview_mismatch"
+file = "crates/meteroid-proof-core/src/cores/checkout_preview_mismatch.rs"
+lean_module = "MeteroidVerify.CheckoutPreviewMismatch"
+lean_file = "proof/MeteroidVerify/CheckoutPreviewMismatch.lean"
+algebra = "composite: preview passes AND billing fails AND the actual charge differs from what was shown"
+encoding = "Int"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Rust-side composite of the two gates above; the underlying Lean fact is bug_is_real (both gate predicates evaluated on the same witness), not separately re-proved as a third theorem."
+controls = ["bug_is_real (Lean, via composed gates)", "bug_scenario_witnessed (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "mrr_to_usd_buggy"
+module = "meteroid-proof-core::cores::termination_currency_conversion"
+file = "crates/meteroid-proof-core/src/cores/termination_currency_conversion.rs"
+lean_module = "MeteroidVerify.TerminationCurrencyConversion"
+lean_file = "proof/MeteroidVerify/TerminationCurrencyConversion.lean"
+algebra = "verbatim (terminate.rs:223-225, create_churn_mrr_log): mrr_delta / rate_to_usd, no exponent scaling"
+encoding = "Nat"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Termination-specific recurrence of bug #7 (CurrencyConversion.lean, customer_balance.rs): create_churn_mrr_log divides raw MRR delta by an exchange rate with no currency-exponent normalization, same missing-scale-factor shape. jpy_to_usd_buggy_no_scaling/bug_produces_wrong_result prove the concrete divergence (1,000,000 JPY at rate 100: buggy gives 10,000, correct gives 1,000,000) by decide. Scope: internal MRR/BI tracking on terminations only, not customer-facing invoicing -- same scope caveat as bug #7's other recurrence sites."
+controls = ["jpy_to_usd_buggy_no_scaling", "bug_produces_wrong_result", "jpy_to_usd_buggy_no_scaling (Rust)", "bug_produces_100x_error (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "power10"
+module = "meteroid-proof-core::cores::termination_currency_conversion"
+file = "crates/meteroid-proof-core/src/cores/termination_currency_conversion.rs"
+lean_module = "MeteroidVerify.TerminationCurrencyConversion"
+lean_file = "proof/MeteroidVerify/TerminationCurrencyConversion.lean"
+algebra = "10^exp, a helper for the exponent-scaling correction"
+encoding = "Nat"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Trivial helper, exercised via mrr_to_usd_correct's use in jpy_to_usd_correct_with_scaling."
+controls = ["jpy_to_usd_correct_with_scaling", "jpy_to_usd_correct_with_scaling (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "mrr_to_usd_correct"
+module = "meteroid-proof-core::cores::termination_currency_conversion"
+file = "crates/meteroid-proof-core/src/cores/termination_currency_conversion.rs"
+lean_module = "MeteroidVerify.TerminationCurrencyConversion"
+lean_file = "proof/MeteroidVerify/TerminationCurrencyConversion.lean"
+algebra = "the correct conversion: mrr_delta * 10^exp_factor / rate_to_usd, scaling by the exponent difference first"
+encoding = "Nat"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-28. Reference implementation used to demonstrate the gap in mrr_to_usd_buggy -- not itself claimed as the exact form a fix should take."
+controls = ["jpy_to_usd_correct_with_scaling", "bug_produces_wrong_result", "jpy_to_usd_correct_with_scaling (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""

@@ -1,0 +1,11 @@
+{
+  "_comment": "Cases for distribute_discount's largest-remainder pass-1 identity. Ported from discount.rs's own tests (test_simple_distribution, test_remainder_distribution) plus authored skewed-subtotal cases, all with discount <= total (the regime proof/MeteroidVerify/DiscountConservation.lean proves conservative). The discount > total case (test_discount_gt_sub_total) is deliberately excluded here — that's the real code's non-conservative capping regime, not what this file models.",
+  "cases": [
+    { "discount": 1000, "subtotals": [6000, 4000] },
+    { "discount": 100, "subtotals": [333, 333, 334] },
+    { "discount": 3000, "subtotals": [1000, 2000] },
+    { "discount": 999, "subtotals": [1, 999] },
+    { "discount": 1000, "subtotals": [10, 1000] },
+    { "discount": 1, "subtotals": [1, 1, 1, 1, 1] }
+  ]
+}

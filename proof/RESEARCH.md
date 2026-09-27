@@ -325,3 +325,75 @@ directly). Both were removed; the correct citation
 (`meteroid-tax/shared.rs:194-195,217-218`) was already documented above. This
 confirms the root `CLAUDE.md`'s concurrent-agent warning is not
 hypothetical for this workspace.
+
+## Rebasing onto the real fork, and a tax-model rewrite mid-stream
+
+The local checkout's `origin` was `meteroid-oss/meteroid` (the public
+upstream) — never repointed to `Tasmanian-Cloud/meteroid` (the real,
+actively-developed internal fork, confirmed via `gh repo view` and a push
+timestamped the day before this session). Fixed by adding a
+`tasmanian-cloud` remote, fetching, and rebasing (clean, no conflicts) —
+`fees.rs`, `proration.rs`, and the metering files were untouched by the 9
+commits the real fork had moved ahead by, so those proofs needed no changes.
+`meteroid-tax/shared.rs` WAS substantially rewritten
+(`feat: rewrite custom tax model and add tax categories`, #1212) into an
+explicit precedence ladder (exemption → reverse-charge → override → engine
+rate) — the `round_dp_with_strategy`/`Decimal::from_f64` call sites
+`TaxRounding.lean` targets are still there, just moved into new
+`resolve_override`/`resolve_engine_rate` helper functions at new line
+numbers; only the citations needed updating, not the proof. Investigated the
+new ladder itself for a bug (per the workspace's read-primary-sources rule,
+not assumed clean from the rewrite's own doc comment) — found none: the
+control flow enforces exemption-outranks-override correctly, `CustomerTax`'s
+new `ReverseCharge` variant is wired into the customer-wide check, and
+`resolve_engine_rate`'s match is exhaustively compiler-checked (no
+wildcard). One numeric detail worth a future deliberate proof, not asserted
+as broken: `ResolvedMultipleTaxRates`'s compound-tax branch (e.g. Canadian
+QST-on-GST) sums independently-rounded per-line amounts into
+`total_tax_amount` rather than rounding a single combined total.
+
+## `distribute_discount`: a conservation theorem, not a bug
+
+Scoped "migrations" as a priority and found it isn't really a
+formal-verification target as stated — the DB DDL files themselves aren't
+provable in this style, though they surfaced one real, tractable invariant
+worth a future proof: `recompute_amount_due_from_settled_payments`
+(`diesel-models/src/query/invoices.rs:664-684`) must exclude `Refunded` rows
+entirely and net partial refunds via `(amount − amount_refunded)` — not yet
+formalized.
+
+Scoping `meteroid-store` more broadly surfaced `distribute_discount`
+(`services/invoice_lines/discount.rs:10-63`), a largest-remainder
+(Hamilton apportionment) split of a flat discount across line items. First
+suspicion: the same class of bug as `fees.rs`'s `block_size` or
+proration's unclamped factor — conservation breaking when `discount`
+exceeds one line's own subtotal while others still have room. Working the
+arithmetic by hand (not from the suspicion alone) disproved it: floor
+division guarantees `discount * x / total < x` whenever `discount < total`
+and `x > 0`, so the real code's `.max(0)` clamp (`discount.rs:38`) provably
+never fires in that regime; when `discount == total` every item floors to
+exactly its own subtotal with zero remainder, so pass 2 never even runs.
+`discount > total` genuinely is non-conservative, but the existing tests
+already know this — `test_discount_gt_sub_total` checks the result lands at
+`0`, not that anything is conserved.
+
+`DiscountConservation.lean`: proves the POSITIVE result instead —
+`sum_pass1_eq` (a floor-division identity summed over a list, by induction)
+and `pass1_sum_le_discount`/`pass1_taxable_pos` (the pass-1 total never
+exceeds the discount; every item's pass-1 share is strictly less than its
+own subtotal when `discount < total`) establish that the real algorithm is
+exactly conservative and never clamps whenever `discount ≤ total_excl_vat` —
+and that the count of pass-2 corrections is fixed by the floor-sum identity
+independent of which items are chosen (the remainder sort is for fairness
+of WHO absorbs the correction, not for the total to come out right — so
+pass 2's selection logic itself isn't modeled, deliberately). Cross-checked
+against `discount.rs`'s own `test_simple_distribution`/
+`test_remainder_distribution` plus authored skewed-subtotal vectors
+(`vectors/discount.json`).
+
+**Not yet investigated** (real scope, not silently dropped): seat/slot
+min/max bounds enforcement, add-on/component matching logic during plan
+changes, and `calculate_coupons_discount` (`discount.rs:65-135`,
+percentage-then-fixed precedence — `Decimal`-typed throughout, so it would
+face the same modeling limits as the tax rate work, not the clean-integer
+target `distribute_discount` was).

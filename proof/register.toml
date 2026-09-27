@@ -3,6 +3,34 @@
 # `scripts/proof-register.py` gate will enforce statically.
 
 [[core]]
+function = "pass1_discount"
+module = "meteroid-proof-core::cores::discount"
+file = "crates/meteroid-proof-core/src/cores/discount.rs"
+lean_module = "MeteroidVerify.DiscountConservation"
+lean_file = "proof/MeteroidVerify/DiscountConservation.lean"
+algebra = "floor-proportional share: discount*x/total (discount.rs:36's largest-remainder pass 1)"
+encoding = "Nat"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. A first read suspected a conservation-invariant bug (discount exceeding one line's subtotal while others have room); working the arithmetic by hand disproved it. sum_pass1_eq (the division-algorithm identity summed over a list) and pass1_sum_le_discount (the pass-1 total never exceeds discount) proved by induction + omega. Rust side (discount.rs cores) cross-checked by shared vectors/discount.json (ported from discount.rs's own test_simple_distribution/test_remainder_distribution + authored skewed-subtotal cases, all discount<=total; cargo test -p meteroid-proof-core)."
+controls = ["pass1_sum_le_discount", "pass1_taxable_pos (Lean)", "matches_test_simple_distribution", "matches_test_remainder_distribution", "matches_shared_vectors (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "pass1_remainder"
+module = "meteroid-proof-core::cores::discount"
+file = "crates/meteroid-proof-core/src/cores/discount.rs"
+lean_module = "MeteroidVerify.DiscountConservation"
+lean_file = "proof/MeteroidVerify/DiscountConservation.lean"
+algebra = "the per-item remainder pass 2 sorts by descending (discount.rs:48-49): discount*x % total"
+encoding = "Nat"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Used in sum_pass1_eq; not separately proved beyond that identity (pass 2's sort-by-remainder selection itself is not modeled — the conservation sum doesn't depend on which items are chosen, only the count, per this file's own module doc)."
+controls = ["matches_test_remainder_distribution (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
 function = "aggregate"
 module = "meteroid-proof-core::cores::metering_agg"
 file = "crates/meteroid-proof-core/src/cores/metering_agg.rs"

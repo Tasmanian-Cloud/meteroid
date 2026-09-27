@@ -600,6 +600,12 @@ than a validation guard — plausibly higher business impact.
 concrete divergence (a 5→10 slot upgrade: the generic formula still
 reports the original 5-slot MRR).
 
+**Confirmed NOT a customer-billing bug.** Checked
+`invoice_lines/component.rs`'s own `Slot` arm (`:135-153`) — it calls
+`self.fetch_slots(conn, invoice_date, unit, ..)`, a live lookup, not
+`initial_slots`. Real invoices are computed correctly; the staleness is
+confined to the internal MRR metric.
+
 ## The exponent-omission bug recurs at four more sites, one of them customer-facing
 
 Grepped for the same shape (`Decimal::from_f32(rate)` multiplying/dividing

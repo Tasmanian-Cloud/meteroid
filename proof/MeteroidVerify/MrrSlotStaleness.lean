@@ -34,6 +34,13 @@ call site is fine; every call reached AFTER a subscription's first slot
 change is not — it silently reports the count as of creation/last
 parameterization, not the current one.
 
+**Scope: this is confirmed NOT to affect real customer invoicing.**
+Checked `services/invoice_lines/component.rs`'s own `Slot` arm
+(`:135-153`) — it calls `self.fetch_slots(conn, invoice_date, unit, ..)`, a
+live lookup, not `initial_slots`. Actual bills are computed correctly; the
+staleness is confined to the internal `calculate_mrr` reporting metric
+(expansion/contraction/churn dashboards), not money customers are charged.
+
 **What is modeled:** the two formulas' divergence whenever the live slot
 count differs from `initial_slots` — a concrete, decidable witness, not a
 claim about which specific call sites are reachable post-slot-change

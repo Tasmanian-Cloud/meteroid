@@ -871,3 +871,33 @@ changes: upgrades/downgrades, proration, MRR recalculation) end-to-end:
 
 No additional formal-verification findings in `plan_change.rs` beyond the two
 already modeled.
+
+## Checkout session expiry boundary condition bug
+
+`CheckoutSession::is_expired()` (`domain/checkout_sessions.rs:81-84`) uses
+`Utc::now() > expires_at` (strict inequality) to determine session expiry.
+The standard semantic for "expires at time T" is that the session remains
+valid during `[created_at, T)`, i.e., valid up to but not including T. This
+requires the check `now >= expires_at` (inclusive). The strict inequality is
+a boundary-condition bug: at exactly the expiration time T, the function
+returns `false` (session not expired), allowing checkout completion at the
+infinitesimal window exactly at T.
+
+`CheckoutSessionExpiry.lean` formalizes this as a pure boolean logic error:
+the `sessionNotExpiredBuggy` model (reflecting the real code with `<=` on
+the integer-time model) diverges from `sessionNotExpiredCorrect` (the
+intended `<` guard) exactly at the boundary time, nowhere else. Four concrete
+`decide`-proved theorems show the bug exists, is narrow (only at T), and is
+consistently denied by the corrected version.
+
+`checkout_session_expiry.rs` provides the Rust companion with five unit tests:
+the boundary-time divergence, pre-expiry agreement, post-expiry agreement,
+offset iterations confirming the boundary-only property, and a real-world
+scenario demonstrating the security implication (a session accepted exactly
+at its expiration instant).
+
+Not modeled: the practical exercise-ability of this boundary (depends on
+system clock granularity and scheduling precision) or whether the bug leads
+to a real compromise (requires the attacker to submit a checkout exactly at
+the microsecond of expiration). The bug is real and decidable; the exploit
+specificity is a deployment question, not a logical one.

@@ -469,3 +469,59 @@ status_reason = "lake build green, 2026-09-27. Reference implementation of the d
 controls = ["grace_window_witness", "agrees_with_no_grace_period (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "quote_conversion_guard_real"
+module = "meteroid-proof-core::cores::quote_expiry"
+file = "crates/meteroid-proof-core/src/cores/quote_expiry.rs"
+lean_module = "MeteroidVerify.QuoteExpiry"
+lean_file = "proof/MeteroidVerify/QuoteExpiry.lean"
+algebra = "the real guard in convert_quote_to_subscription (services/quotes.rs:21-61, :36,44): checks status == Accepted and !already_converted, but NOT expiry"
+encoding = "Bool"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. CONFIRMED bug: convert_quote_to_subscription (services/quotes.rs:21-61) fetches a detailed quote at line 30-33, validates status == Accepted at :36 and checks !converted_to_subscription_id.is_some() at :44, but makes NO call to check whether quote.expires_at has passed. Compare to coupon expiry check (services/subscriptions/utils.rs:378): if coupon.expires_at.is_some_and(|x| x <= now) {...}. A quote with an expires_at timestamp can be accepted, then converted to a subscription arbitrarily long after expiry without any validation. This is especially problematic because quotes are calculated at creation time and pricing may change. expired_quote_conversion_bug proves a concrete witness (status=Accepted, already_converted=false, expired=true: real code accepts, intended code rejects) by decide."
+controls = ["expired_quote_conversion_bug", "not_accepted_quote_blocked_by_both", "already_converted_quote_blocked_by_both"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "quote_conversion_guard_intended"
+module = "meteroid-proof-core::cores::quote_expiry"
+file = "crates/meteroid-proof-core/src/cores/quote_expiry.rs"
+lean_module = "MeteroidVerify.QuoteExpiry"
+lean_file = "proof/MeteroidVerify/QuoteExpiry.lean"
+algebra = "the correct guard: checks status == Accepted AND !already_converted AND !expired (rejects expired quotes)"
+encoding = "Bool"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Reference implementation of what the guard should check. Note: the real code currently clears expires_at to None when a quote is accepted (repositories/quotes.rs:509), suggesting the intended design was that expiry should be checked BEFORE acceptance — yet no such check exists at accept_quote either. This function models the fix: once a quote with a past expires_at is detected, conversion should be rejected. Not claimed as the exact form a fix should take, pending product review of whether expired quotes should be rejectable at acceptance time, conversion time, or both."
+controls = ["expired_quote_conversion_bug", "agrees_when_not_expired", "already_converted_quote_blocked_by_both"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "checkout_session_expiry_buggy"
+module = "meteroid-proof-core::cores::checkout_session_expiry"
+file = "crates/meteroid-proof-core/src/cores/checkout_session_expiry.rs"
+lean_module = "MeteroidVerify.CheckoutSessionExpiry"
+lean_file = "proof/MeteroidVerify/CheckoutSessionExpiry.lean"
+algebra = "the real buggy implementation (domain/checkout_sessions.rs:83): now > expires_at modeled as now <= expires_at on integer timestamps"
+encoding = "Int (microseconds)"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. The CheckoutSession::is_expired() method uses strict inequality > to check expiry. This models the bug as a pure integer comparison. expiry_boundary_bug_concrete_witness/expiry_boundary_correct_denies/expiry_boundary_bug_exists prove the bug exists exactly at the boundary (now=expires_at), allowing checkout completion when the session should be expired. Pre and post-boundary tests (expiry_pre_boundary_both_allow, expiry_post_boundary_both_deny) confirm both implementations agree everywhere except the exact boundary time. Rust side cross-checked with 5 unit tests verifying boundary divergence, pre/post agreement, offset iterations, and a real-world scenario demonstrating the security implication."
+controls = ["expiry_boundary_bug_concrete_witness", "expiry_boundary_correct_denies", "expiry_boundary_bug_exists", "expiry_pre_boundary_both_allow", "expiry_post_boundary_both_deny", "test_expiry_bug_divergence_only_at_boundary (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""
+
+[[core]]
+function = "checkout_session_expiry_correct"
+module = "meteroid-proof-core::cores::checkout_session_expiry"
+file = "crates/meteroid-proof-core/src/cores/checkout_session_expiry.rs"
+lean_module = "MeteroidVerify.CheckoutSessionExpiry"
+lean_file = "proof/MeteroidVerify/CheckoutSessionExpiry.lean"
+algebra = "the correct guard: now < expires_at (inclusive check, standard expiry semantics)"
+encoding = "Int (microseconds)"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Reference implementation modeling the correct expiry guard. The standard semantic for 'expires at time T' is that the session is valid during [created_at, T), i.e., valid up to but not including T, requiring now >= expires_at (i.e., now < expires_at under the negation). Contrasted with checkout_session_expiry_buggy to prove the bug is confined to exactly one time: the expiration instant itself."
+controls = ["expiry_boundary_correct_denies", "expiry_pre_boundary_both_allow", "expiry_post_boundary_both_deny", "test_expiry_real_world_window (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

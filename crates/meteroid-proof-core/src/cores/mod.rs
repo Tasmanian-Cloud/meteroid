@@ -1,3 +1,4 @@
+pub mod checkout_session_expiry;
 pub mod component_matching;
 pub mod coupon_threshold;
 pub mod credit_note_race;

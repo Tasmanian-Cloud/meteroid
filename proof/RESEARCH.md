@@ -832,3 +832,42 @@ credited twice — while the second current component is matched by neither
 and falls into `removed` even though a target for its product exists. This
 isn't a mis-labeling bug, it's a real over-crediting bug on plan changes
 where a product backs more than one price component.
+
+## `plan_change.rs` scouted: two real bugs already formalized
+
+Examined `services/subscriptions/plan_change.rs` (1744 lines, mid-cycle plan
+changes: upgrades/downgrades, proration, MRR recalculation) end-to-end:
+
+**Real bugs already formalized**:
+1. **Component matching** (`build_plan_change_preview`, `build_component_mappings`,
+   lines 1534-1532): `.find()` on non-unique `product_id` key can double-match,
+   formalized in `ComponentMatching.lean`.
+2. **MRR staleness** (line 984, add-on MRR calculation): uses stale `calculate_mrr`
+   instead of slot-aware `calculate_components_mrr_with_slots`; formalized in
+   `MrrSlotStaleness.lean`.
+
+**Code flows traced, found correct**:
+- **Proration calculations** (lines 323, 764): both call `calculate_proration`
+  with correct matched/added/removed split, filtering OneTime components
+  appropriately (subscription-lifecycle proration, not customer-facing per
+  Proration.lean).
+- **Component closure and insertion** (lines 824-906): matched components are
+  closed on `change_date` and new ones inserted with `effective_from: change_date`
+  in a single transaction (no gap or double-billing window). For slot components,
+  `resolve_preview_slot_counts` (lines 1626-1687) correctly patches both current
+  and new fees to actual counts from `slot_transactions`; slot transaction
+  creation (lines 908-918) correctly only adds entries for **Added** components,
+  not Matched (which already have ledger entries) or Removed.
+- **Trial → Active transition** (lines 998-1066): free trials reset billing
+  period (line 1011: `calculate_advance_period_range(change_date, ..., true, ...)`,
+  `is_partial=true` for mid-period reset); paid trials keep billing period and
+  just transition status. No off-by-one detected; period anchor set to
+  `change_date.day()` is correct.
+- **Component matching logic** in both `build_plan_change_preview` and
+  `build_component_mappings` (lines 1554-1558, 1471-1475): identical structure,
+  matching by `product_id`, marking matched ids in `HashSet`, removing unmatched
+  — correctly implements the non-consuming scan that ComponentMatching.lean
+  identified as the bug vector when multiple current components share a product_id.
+
+No additional formal-verification findings in `plan_change.rs` beyond the two
+already modeled.

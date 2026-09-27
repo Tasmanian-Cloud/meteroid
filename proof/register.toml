@@ -315,3 +315,17 @@ status_reason = "lake build green, 2026-09-27. both_pass_the_guard + combined_ef
 controls = ["both_pass_the_guard", "combined_effect_exceeds_amount_due", "guard_gives_no_joint_bound", "both_debt_cancellations_pass_the_guard_but_jointly_overshoot (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "dunning_delay"
+module = "meteroid-proof-core::cores::dunning_schedule"
+file = "crates/meteroid-proof-core/src/cores/dunning_schedule.rs"
+lean_module = "MeteroidVerify.DunningSchedule"
+lean_file = "proof/MeteroidVerify/DunningSchedule.lean"
+algebra = "verbatim (payment_transaction_failed.rs:22,135-136): DUNNING_RETRY_SCHEDULE_DAYS[3,5,7].get(failed_attempts.saturating_sub(1))"
+encoding = "Nat -- Lean's Nat subtraction is already saturating, so failedAttempts - 1 IS .saturating_sub(1), not a model of it"
+status = "Lean (native)"
+status_reason = "lake build green, 2026-09-27. Checked by hand-tracing schedule_next_dunning_attempt's call path first (confirmed via the transactional-outbox pattern that failed_attempts always includes the CURRENT failure, so no undercounting) and found CORRECT -- pinned as a proof rather than left as a trace, since this is exactly the off-by-one shape TierPricing.lean and CouponThreshold.lean found real bugs in elsewhere. first/second/third_attempt_picks_..._rung and fourth_attempt_exhausts_the_ladder decide-check the boundary; exhausted_forever proves it stays exhausted for every larger attempt count, not just the boundary."
+controls = ["first_attempt_picks_first_rung", "fourth_attempt_exhausts_the_ladder", "exhausted_forever", "matches_the_ladder_exactly (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

@@ -506,6 +506,35 @@ Lean: the discharging fact is a cross-function state invariant
 ("credit notes require Finalized"), not decidable arithmetic — recorded
 here rather than forced into a theorem it doesn't fit.
 
+## Dunning retry ladder: correct concurrency, and the off-by-one is pinned as a proof
+
+Scouted `payment_transaction_failed.rs`'s retry-scheduling path next
+(previously untouched territory — dunning/collections, not
+pricing/invoicing). `on_payment_transaction_failed` is a genuinely
+well-designed contrast to the credit-note race above: it locks the invoice
+row FIRST (`select_for_update_by_id`, `:54`), then recomputes `amount_due`
+from scratch on the SAME connection (`:62-68`, reusing
+`recompute_amount_due_from_settled_payments`) — the fresh, post-lock value
+actually drives the decision, unlike `credit_notes.rs`'s discarded
+`_invoice_lock`. No bug here.
+
+The ladder-index arithmetic
+(`DUNNING_RETRY_SCHEDULE_DAYS.get(failed_attempts.saturating_sub(1))`,
+`:135-136`, schedule `[3, 5, 7]` days) is exactly the off-by-one shape that
+turned out to be real bugs elsewhere (`TierPricing.lean`'s tier-boundary
+underflow, `CouponThreshold.lean`'s early break). Hand-traced it first:
+confirmed `count_failed_for_invoice` always includes the CURRENT failure
+(the handler is driven by a transactional-outbox event, which by
+construction only publishes after the triggering `payment_transaction`
+row's `Failed` status is already committed — no undercounting window) and
+the indexing itself is correct (`failed_attempts=1` → first rung, `=4` →
+exhausted). Found correct, not a bug — but pinned as `DunningSchedule.lean`
+rather than left as a hand-trace, since the array or the subtraction
+drifting out of sync on a future edit is exactly the kind of change a
+proof, not a comment, would catch. `exhausted_forever` proves the ladder
+stays exhausted for every attempt count beyond the boundary, not just the
+one checked by hand.
+
 ## `TaxRounding.lean`'s rounding rule is the codebase's canonical money-rounding primitive
 
 Scouting `fees.rs`'s `compute_usage_price` (`:218-253`, covers `PerUnit`,

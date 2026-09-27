@@ -13,6 +13,15 @@ pipeline (`proration.rs:165-169,186,212,243,295`) against the idealized
 exact-rational answer — not just an "intended semantics, documented gap"
 model as before.
 
+The bound is stated generically over any magnitude/precision, not tied to
+`proration.rs`'s own variable names — so it also covers
+`services/invoice_lines/component.rs::prorate` (`:717-724`)'s
+`(price_cents as f64 * proration_factor).round() as i64`, the identical
+shape at the ACTUAL invoice-line-generation call site (as opposed to
+`proration.rs`'s subscription-lifecycle proration calculations). Not a
+separate proof — the same bound, a second real call site confirmed to fit
+it.
+
 **The method, precisely (this is the load-bearing idea `song`'s own
 Float3.lean already established):** IEEE-754 "correctly rounded" arithmetic
 means every operation returns the representable value NEAREST the true

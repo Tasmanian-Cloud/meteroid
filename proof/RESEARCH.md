@@ -606,6 +606,20 @@ reports the original 5-slot MRR).
 `initial_slots`. Real invoices are computed correctly; the staleness is
 confined to the internal MRR metric.
 
+## `FloatError.lean`'s bound also covers a second, real invoice-line call site
+
+Scouted `invoice_lines/component.rs::prorate` (`:717-724`), the function
+actually used when generating invoice line amounts. It computes
+`(price_cents as f64 * proration_factor).round() as i64` — structurally
+identical to the `(amount_cents as f64 * factor).round() as i64` shape
+`FloatError.lean` already bounds against `proration.rs`'s subscription-
+lifecycle proration sites. `FloatError.lean`'s bound is stated generically
+over any magnitude/precision, not tied to `proration.rs`'s own variable
+names, so this is not a new proof — it's a second confirmed real call site
+for the existing one, the actual invoice-line-generation path rather than
+the subscription-lifecycle proration calculations the file was originally
+written against.
+
 ## The exponent-omission bug recurs at four more sites, one of them customer-facing
 
 Grepped for the same shape (`Decimal::from_f32(rate)` multiplying/dividing

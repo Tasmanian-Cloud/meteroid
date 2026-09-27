@@ -15,6 +15,7 @@ pub mod mrr_slot_staleness;
 pub mod payment_reversal;
 pub mod proration;
 pub mod quote_expiry;
+pub mod reconciliation_amount_gap;
 pub mod refund_invariant;
 pub mod removal_side_spurious_credit;
 pub mod scale_fee_display;

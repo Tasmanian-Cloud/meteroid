@@ -736,3 +736,17 @@ status_reason = "lake build green, 2026-09-28. Reference implementation used to 
 controls = ["jpy_to_usd_correct_with_scaling", "bug_produces_wrong_result", "jpy_to_usd_correct_with_scaling (Rust)"]
 proof_repo_commit = ""
 artifact_sha256 = ""
+
+[[core]]
+function = "reconciliation_accepts_any_amount"
+module = "meteroid-proof-core::cores::reconciliation_amount_gap"
+file = "crates/meteroid-proof-core/src/cores/reconciliation_amount_gap.rs"
+lean_module = "MeteroidVerify.ReconciliationAmountGap"
+lean_file = "proof/MeteroidVerify/ReconciliationAmountGap.lean"
+algebra = "reconciliation never validates that amount_received matches amount_requested; any settled amount is silently accepted"
+encoding = "Int"
+status = "Rust (core only)"
+status_reason = "reconciliation_amount_gap.rs tests pass (3/3). Lean file written but not built (song dependency not in worktree). Bug: reconcile_pending_transaction (line 133 of reconcile.rs) calls consolidate_intent_and_transaction_tx with a PaymentIntent that carries amount_received, but consolidate never reads it. Contrast with hosted_setup.rs::resolve_captured_payment (lines 1299-1310) which validates amount matches and holds on mismatch. reconciliation flow has no such check."
+controls = ["partial_payment_accepted_without_validation (Rust)", "overpayment_also_accepted_without_validation (Rust)", "contrast_with_hosted_setup_validates (Rust)"]
+proof_repo_commit = ""
+artifact_sha256 = ""

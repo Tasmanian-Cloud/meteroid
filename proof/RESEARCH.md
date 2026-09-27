@@ -1651,3 +1651,62 @@ The webhook event itself carries no amount; both fields are hardcoded to zero/em
 
 This audit did NOT formalize any Lean proofs — all findings are call-tracing observations rather than decidable arithmetic properties. The Stripe quirk is a design question (should `amount_minor` be provider-relative or globally normalized?) rather than a computational bug in the current code.
 
+## Payment services audit — reconciliation amount validation gap (Bug #22)
+
+### Scope
+
+Audited 8 previously-unchecked payment service files:
+- `services/payment/manual.rs` (236 lines) — manual payment recording
+- `services/payment/reconcile.rs` (324 lines) — provider reconciliation
+- `services/payment/hosted_payment_sweep.rs` (477 lines) — lost-return recovery
+- `services/payment/hosted_setup.rs` (1455 lines) — hosted payment completion
+- `services/payment/hosted_invoice.rs` (339 lines) — hosted invoice payment
+- `services/payment/webhook_backed_setup.rs` (186 lines) — webhook-backed setup
+- `services/payment/hosted_return.rs` (109 lines) — return handler wrapper
+- `services/payment/sepa.rs` (46 lines) — SEPA country list
+
+### Findings
+
+#### Bug #22: Reconciliation silently accepts mismatched amounts
+
+**Location**: `reconcile.rs:132-138` calls `consolidate_intent_and_transaction_tx` with a `PaymentIntent` that carries `amount_received` from the provider, but `consolidate` (defined in `repositories/payment_transactions.rs:168-282`) never validates or even reads the amount field.
+
+**The flow**:
+1. `reconcile_pending_transaction` fetches provider status
+2. `payment_intent_from_remote_status` (lines 168-183) creates a `PaymentIntent` with:
+   - `amount_requested: row.amount` (pre-recorded amount)
+   - `amount_received: Some(amount_received_minor)` (provider's reported amount)
+3. Passes intent to `consolidate_intent_and_transaction_tx`
+4. Consolidate only patches: `status`, `processed_at`, `error_type`, `provider_transaction_id`
+5. **Never validates** that amounts match
+6. If provider settled $95 on a $100 charge, it's marked Settled as $95 with no flag
+
+**Contrast**: `hosted_setup.rs::resolve_captured_payment` (lines 1286-1321) explicitly validates:
+```rust
+if amount_received_minor != expected_amount_minor {
+  return CapturedPaymentResolution::HoldMismatch { ... }
+}
+```
+This holds captured money for manual review on any mismatch. Reconciliation has no such guard.
+
+**Severity**: Real. A provider partial-payment or over-payment is silently accepted. The discrepancy is never flagged, stored, or reviewed. Unlike the hosted flow which is explicit about holds, reconciliation silently diverges from expected amounts.
+
+#### Positive findings
+
+**`manual.rs`**: Correctly validates `amount_cents <= invoice.invoice.amount_due` (line 76) before recording. Guard is in place and correctly clamped.
+
+**`hosted_setup.rs`**: Amount validation is explicit and comprehensive:
+- Line 1299-1310: `resolve_captured_payment` validates amount matches currency
+- Line 388-409: After fetching captured payment status, re-checks transaction details to prevent moved-money scenarios
+- Idempotency is preserved: settled transactions are not re-processed
+
+**`hosted_payment_sweep.rs`**: The sweep re-fetches fresh provider data via `complete_hosted_setup_with_attempts` before deciding what to do. While the outcome is computed before acquiring the lock, the actual mutations are guarded: once the lock is held, staleness checks (line 227-234) verify the intent hasn't changed, and status checks (line 238-254) abort if the transaction has already progressed.
+
+**`hosted_invoice.rs`**: Over-payment guards are in place (lines 140-162). The check validates that `active_payment_sum + invoice.invoice.amount_due <= invoice.invoice.total`, defending against paying more than the invoice's total amount.
+
+**Reconciliation idempotency**: The guard at line 53-59 checks if the transaction is still `Pending` before proceeding. If the status has already transitioned, reconciliation is a no-op. This provides idempotency protection against duplicate reconciliation calls.
+
+### Conclusion
+
+No staleness bugs found in the hosted-payment sweep (data is re-fetched fresh). No state-transition gaps found in setup flows (all enum variants are handled). Manual payment recording is correctly defended. The one real bug is the reconciliation flow's failure to validate amount matching, which is already documented in Bug #22.
+
